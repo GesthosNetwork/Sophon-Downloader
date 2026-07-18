@@ -6,13 +6,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Version>2.1.1</Version>
+    <Version>2.1.2</Version>
 	<Copyright>GesthosNetwork © 2026 All rights reserved.</Copyright>
     <PublishSingleFile>true</PublishSingleFile>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
     <PublishTrimmed>false</PublishTrimmed>
     <PublishDir>..\bin\</PublishDir>
-    <DebugType>none</DebugType>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -27,26 +26,11 @@
 
   <Target Name="PostPublishCleanup" AfterTargets="Publish">
     <ItemGroup>
-      <LibFiles Include="$(ProjectDir)bin\Release\net10.0\win-x64\Lib\win-x64\**\*.*" />
-      <PdbToDelete Include="$(PublishDir)**\*.pdb" />
+      <FilesToDelete Include="$(PublishDir)**\*.pdb" />
     </ItemGroup>
 
-    <MakeDir Directories="$(ProjectDir)..\bin\Lib\win-x64" />
-
-    <Copy
-      SourceFiles="@(LibFiles)"
-      DestinationFiles="@(LibFiles->'$(ProjectDir)..\bin\Lib\win-x64\%(RecursiveDir)%(Filename)%(Extension)')"
-      SkipUnchangedFiles="true"
-      OverwriteReadOnlyFiles="true" />
-
-    <Delete Files="@(PdbToDelete)" />
-
+    <Delete Files="@(FilesToDelete)" />
     <RemoveDir Directories="$(ProjectDir)bin;$(ProjectDir)obj;$(ProjectDir)..\Sophon\bin;$(ProjectDir)..\Sophon\obj" />
-
-	<Copy 
-      SourceFiles="config.sample.json"
-      DestinationFiles="..\bin\config.json"
-      OverwriteReadOnlyFiles="true" />
   </Target>
 
 </Project>

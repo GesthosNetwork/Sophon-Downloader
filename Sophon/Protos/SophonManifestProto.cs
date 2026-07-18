@@ -24,17 +24,17 @@ namespace Sophon.Protos {
     static SophonManifestProtoReflection() {
       byte[] descriptorData = global::System.Convert.FromBase64String(
           string.Concat(
-            "ChlTb3Bob25NYW5pZmVzdFByb3RvLnByb3RvEg1Tb3Bob24uUHJvdG9zIlEK",
-            "E1NvcGhvbk1hbmlmZXN0UHJvdG8SOgoGQXNzZXRzGAEgAygLMiouU29waG9u",
-            "LlByb3Rvcy5Tb3Bob25NYW5pZmVzdEFzc2V0UHJvcGVydHkiqgEKG1NvcGhv",
-            "bk1hbmlmZXN0QXNzZXRQcm9wZXJ0eRIRCglBc3NldE5hbWUYASABKAkSPAoL",
-            "QXNzZXRDaHVua3MYAiADKAsyJy5Tb3Bob24uUHJvdG9zLlNvcGhvbk1hbmlm",
-            "ZXN0QXNzZXRDaHVuaxIRCglBc3NldFR5cGUYAyABKAUSEQoJQXNzZXRTaXpl",
-            "GAQgASgDEhQKDEFzc2V0SGFzaE1kNRgFIAEoCSKcAQoYU29waG9uTWFuaWZl",
-            "c3RBc3NldENodW5rEhEKCUNodW5rTmFtZRgBIAEoCRIgChhDaHVua0RlY29t",
-            "cHJlc3NlZEhhc2hNZDUYAiABKAkSGQoRQ2h1bmtPbkZpbGVPZmZzZXQYAyAB",
-            "KAMSEQoJQ2h1bmtTaXplGAQgASgDEh0KFUNodW5rU2l6ZURlY29tcHJlc3Nl",
-            "ZBgFIAEoA2IGcHJvdG8z"));
+            "ChlTb3Bob25NYW5pZmVzdFByb3RvLnByb3RvEhdIaTNIZWxwZXIuU29waG9u",
+            "LlByb3RvcyJbChNTb3Bob25NYW5pZmVzdFByb3RvEkQKBkFzc2V0cxgBIAMo",
+            "CzI0LkhpM0hlbHBlci5Tb3Bob24uUHJvdG9zLlNvcGhvbk1hbmlmZXN0QXNz",
+            "ZXRQcm9wZXJ0eSK0AQobU29waG9uTWFuaWZlc3RBc3NldFByb3BlcnR5EhEK",
+            "CUFzc2V0TmFtZRgBIAEoCRJGCgtBc3NldENodW5rcxgCIAMoCzIxLkhpM0hl",
+            "bHBlci5Tb3Bob24uUHJvdG9zLlNvcGhvbk1hbmlmZXN0QXNzZXRDaHVuaxIR",
+            "CglBc3NldFR5cGUYAyABKAUSEQoJQXNzZXRTaXplGAQgASgDEhQKDEFzc2V0",
+            "SGFzaE1kNRgFIAEoCSKcAQoYU29waG9uTWFuaWZlc3RBc3NldENodW5rEhEK",
+            "CUNodW5rTmFtZRgBIAEoCRIgChhDaHVua0RlY29tcHJlc3NlZEhhc2hNZDUY",
+            "AiABKAkSGQoRQ2h1bmtPbkZpbGVPZmZzZXQYAyABKAMSEQoJQ2h1bmtTaXpl",
+            "GAQgASgDEh0KFUNodW5rU2l6ZURlY29tcHJlc3NlZBgFIAEoA2IGcHJvdG8z"));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
           new pbr::GeneratedClrTypeInfo(null, null, new pbr::GeneratedClrTypeInfo[] {

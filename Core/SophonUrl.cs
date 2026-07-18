@@ -49,118 +49,345 @@ namespace Core
         public string? matching_field { get; set; }
     }
 
-    public enum Region { OSREL, CNREL }
-    public enum BranchType { Main, PreDownload }
+    public class BuildRoot
+    {
+        public int retcode { get; set; }
+        public string? message { get; set; }
+        public BuildData? data { get; set; }
+    }
+
+    public class BuildData
+    {
+        public string? build_id { get; set; }
+        public string? tag { get; set; }
+    }
+
+    public class VersionsConfig
+    {
+        public List<string> Full { get; set; } = new();
+        public List<List<string>> Update { get; set; } = new();
+    }
+
+    public enum Region
+    {
+        OSREL,
+        CNREL
+    }
+
+    public enum BranchType
+    {
+        Main,
+        PreDownload
+    }
 
     public class SophonUrl
     {
-        private string apiBase = "", sophonBase = "", gameId = "", launcherId = "", platApp = "";
-        private string gameBiz = "", packageId = "", password = "";
-        private BranchType branch;
+        private static readonly HttpClient Http = new()
+        {
+            Timeout = TimeSpan.FromSeconds(30)
+        };
+
+        private static readonly JsonSerializerOptions JsonOptions = new()
+        {
+            PropertyNameCaseInsensitive = true
+        };
+
+        private readonly string gameId;
+        private readonly string launcherId;
+        private readonly string platApp;
+        private readonly BranchType branch;
+
+        private string apiBase = "";
+        private string sophonBase = "";
+
+        private string gameBiz = "";
+        private string packageId = "";
+        private string password = "";
+
         private BranchesRoot branchBackup = new();
 
-        public SophonUrl(Region region, string gameId, BranchType branch = BranchType.Main, string launcherIdOverride = "", string platAppOverride = "")
+        private VersionsConfig? versionsCache;
+        private string? latestVersionCache;
+
+        public SophonUrl(
+            Region region,
+            string gameId,
+            BranchType branch = BranchType.Main,
+            string launcherIdOverride = "",
+            string platAppOverride = "")
         {
-            UpdateRegion(region);
             this.gameId = gameId;
             this.branch = branch;
-            launcherId = string.IsNullOrEmpty(launcherIdOverride) ? AppConfig.Config.LauncherId : launcherIdOverride;
-            platApp = string.IsNullOrEmpty(platAppOverride) ? AppConfig.Config.PlatApp : platAppOverride;
+
+            UpdateRegion(region);
+
+            launcherId = string.IsNullOrWhiteSpace(launcherIdOverride)
+                ? AppConfig.Config.LauncherId
+                : launcherIdOverride;
+
+            platApp = string.IsNullOrWhiteSpace(platAppOverride)
+                ? AppConfig.Config.PlatApp
+                : platAppOverride;
+
+            packageId = AppConfig.Config.PackageId;
+            password = AppConfig.Config.Password;
         }
 
-        public void UpdateRegion(Region region) =>
+        public void UpdateRegion(Region region)
+        {
             (apiBase, sophonBase) = region switch
             {
-                Region.OSREL => (
+                Region.OSREL =>
+                (
                     "https://sg-hyp-api.hoyoverse.com/hyp/hyp-connect/api/getGameBranches",
-                    "https://sg-public-api.hoyoverse.com:443/downloader/sophon_chunk/api/getBuild"
+                    "https://sg-public-api.hoyoverse.com/downloader/sophon_chunk/api/getBuild"
                 ),
-                Region.CNREL => (
+
+                Region.CNREL =>
+                (
                     "https://hyp-api.mihoyo.com/hyp/hyp-connect/api/getGameBranches",
                     "https://api-takumi.mihoyo.com/downloader/sophon_chunk/api/getBuild"
                 ),
+
                 _ => throw new ArgumentOutOfRangeException(nameof(region))
             };
+        }
 
         public async Task<int> GetBuildData()
         {
             var uri = new UriBuilder(apiBase);
-            var q = HttpUtility.ParseQueryString(uri.Query);
+            var query = HttpUtility.ParseQueryString(uri.Query);
 
-            q["game_ids[]"] = gameId;
-            q["launcher_id"] = launcherId;
-            uri.Query = q.ToString();
+            query["game_ids[]"] = gameId;
+            query["launcher_id"] = launcherId;
+            uri.Query = query.ToString();
 
-            var obj = JsonSerializer.Deserialize<BranchesRoot>(await FetchUrl(uri.ToString()));
-            var (ok, biz, pkg, pass, err) = ParseBuildData(obj, branch);
+            var json = await FetchUrl(uri.ToString());
+            var obj = JsonSerializer.Deserialize<BranchesRoot>(
+                json,
+                JsonOptions);
 
-            if (!ok)
+            var result = ParseBuildData(obj, branch);
+
+            if (!result.ok)
             {
-                if (branch == BranchType.PreDownload)
-                    (packageId, password) = ("ScSYQBFhu9", "ZOJpUiKu4Sme");
-                else if (branch == BranchType.Main)
-                    (packageId, password) = ("ScSYQBFhu9", "bDL4JUHL625x");
-                else
-                {
-                    Console.WriteLine($"Error: {err}");
-                    return -1;
-                }
+                Logger.Debug($"Branch data unavailable: {result.err}");
+                packageId = AppConfig.Config.PackageId;
+                password = AppConfig.Config.Password;
+                branchBackup = new BranchesRoot();
 
-                branchBackup = new();
                 return 0;
             }
 
-            gameBiz = biz;
-            packageId = string.IsNullOrEmpty(pkg) ? "ScSYQBFhu9" : pkg;
-            password = string.IsNullOrEmpty(pass)
-                ? (branch == BranchType.PreDownload ? "ZOJpUiKu4Sme" : "bDL4JUHL625x")
-                : pass;
+            gameBiz = result.biz;
 
-            branchBackup = obj!;
+            if (!string.IsNullOrWhiteSpace(result.pkg))
+                packageId = result.pkg;
+
+            if (!string.IsNullOrWhiteSpace(result.pass))
+                password = result.pass;
+
+            branchBackup = obj ?? new BranchesRoot();
+
             return 0;
         }
 
-        private static (bool ok, string biz, string pkg, string pass, string err)
-            ParseBuildData(BranchesRoot? obj, BranchType type)
+        public async Task<string?> GetLatestVersion()
         {
-            if (obj?.retcode != 0 || obj.message != "OK")
-                return (false, "", "", "", obj?.message ?? "Unknown error");
+            if (!string.IsNullOrWhiteSpace(latestVersionCache))
+                return latestVersionCache;
 
-            var branch = GetBranch(obj, type);
-            if (branch == null)
-                return (false, "", "", "", $"Branch {type} not found");
+            Logger.Debug($"Fetching latest build: {sophonBase}");
 
-            var game = obj.data?.game_branches?.FirstOrDefault()?.game;
-            return (true, game?.biz ?? "", branch.package_id ?? "", branch.password ?? "", "");
+            var json = await FetchUrl(BuildSophonUrl());
+
+            var obj = JsonSerializer.Deserialize<BuildRoot>(
+                json,
+                JsonOptions);
+
+            if (obj?.retcode != 0 ||
+                string.IsNullOrWhiteSpace(obj.data?.tag))
+            {
+                Logger.Debug("Latest version not found.");
+                return null;
+            }
+
+            latestVersionCache = obj.data.tag;
+            Logger.Debug($"Latest version: {latestVersionCache}");
+
+            return latestVersionCache;
+        }
+
+        public async Task<VersionsConfig> GetVersionsAsync()
+        {
+            if (versionsCache != null)
+                return versionsCache;
+
+            Logger.Debug($"Fetching versions | Branch: {branch}");
+            Logger.Debug($"Package ID: {packageId}");
+            Logger.Debug($"Build API: {sophonBase}");
+
+            if (branch == BranchType.PreDownload)
+                throw new Exception("Version list is not available for pre-download branch.");
+
+            var latest = await GetLatestVersion();
+
+            if (string.IsNullOrWhiteSpace(latest))
+                throw new Exception("Latest version unavailable.");
+
+            if (!TryParseTag(latest, out int latestMajor, out int latestMinor))
+                throw new Exception($"Invalid version format: {latest}");
+
+            var versions = new List<string>();
+
+            for (int major = latestMajor; major >= 1; major--)
+            {
+                int startMinor = major == latestMajor
+                    ? latestMinor
+                    : 99;
+
+                for (int minor = startMinor; minor >= 0; minor--)
+                {
+                    string tag = $"{major}.{minor}.0";
+
+                    if (await IsValidBuildTagAsync(tag))
+                    {
+                        Logger.Debug($"Valid build: {tag}");
+                        versions.Add($"{major}.{minor}");
+                    }
+                }
+            }
+
+            versions.Reverse();
+            var result = new VersionsConfig();
+            result.Full.AddRange(versions);
+
+            for (int i = 0; i < result.Full.Count - 1; i++)
+            {
+                result.Update.Add(new List<string>
+                {
+                    result.Full[i],
+                    result.Full[i + 1]
+                });
+            }
+
+            Logger.Debug($"Version count: {result.Full.Count}");
+            versionsCache = result;
+
+            return result;
         }
 
         public string GetBuildUrl(string version, bool isUpdate = false)
         {
+            string? tag = null;
+
+            if (!string.Equals(version, "Latest", StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(version))
+            {
+                tag = version.Count(c => c == '.') == 1
+                    ? $"{version}.0"
+                    : version;
+            }
+
+            return BuildSophonUrl(tag);
+        }
+
+        private string BuildSophonUrl(string? tag = null)
+        {
             var uri = new UriBuilder(sophonBase);
-            var q = HttpUtility.ParseQueryString(uri.Query);
+            var query = HttpUtility.ParseQueryString(uri.Query);
 
-            q["branch"] = branch.ToString().ToLower();
-            q["package_id"] = packageId;
-            q["password"] = password;
-            q["plat_app"] = platApp;
+            query["branch"] = branch.ToString().ToLowerInvariant();
+            query["package_id"] = packageId;
+            query["password"] = password;
+            query["plat_app"] = platApp;
 
-            if (branch != BranchType.PreDownload)
-                q["tag"] = version;
+            if (!string.IsNullOrWhiteSpace(tag))
+                query["tag"] = tag;
 
-            uri.Query = q.ToString();
+            uri.Query = query.ToString();
+
             return uri.ToString();
+        }
+
+        private async Task<bool> IsValidBuildTagAsync(string tag)
+        {
+            var json = await FetchUrl(BuildSophonUrl(tag));
+            var obj = JsonSerializer.Deserialize<BuildRoot>(json, JsonOptions);
+
+            return obj?.retcode == 0
+                && string.Equals(obj.message, "OK", StringComparison.OrdinalIgnoreCase);
         }
 
         private static async Task<string> FetchUrl(string url)
         {
-            using var client = new HttpClient();
-            return await client.GetStringAsync(url);
+            return await Http.GetStringAsync(url);
         }
 
-        private static BranchesMain? GetBranch(BranchesRoot obj, BranchType type)
+        private static bool TryParseTag(
+            string tag,
+            out int major,
+            out int minor)
         {
-            var b = obj.data?.game_branches?.FirstOrDefault();
-            return type == BranchType.Main ? b?.main : b?.pre_download;
+            major = 0;
+            minor = 0;
+
+            var split = tag.Split('.');
+
+            if (split.Length < 2)
+                return false;
+
+            return int.TryParse(split[0], out major)
+                && int.TryParse(split[1], out minor);
+        }
+
+        private static BranchesMain? GetBranch(
+            BranchesRoot obj,
+            BranchType type)
+        {
+            var branch = obj.data?
+                .game_branches?
+                .FirstOrDefault();
+
+            return type == BranchType.Main
+                ? branch?.main
+                : branch?.pre_download;
+        }
+
+        private static (
+            bool ok,
+            string biz,
+            string pkg,
+            string pass,
+            string err)
+            ParseBuildData(
+                BranchesRoot? obj,
+                BranchType type)
+        {
+            if (obj?.retcode != 0 ||
+                !string.Equals(obj.message, "OK", StringComparison.OrdinalIgnoreCase))
+            {
+                return (false, "", "", "", obj?.message ?? "Unknown error");
+            }
+
+            var branch = GetBranch(obj, type);
+
+            if (branch == null)
+            {
+                return (false, "", "", "", $"Branch {type} not found");
+            }
+
+            var game = obj.data?
+                .game_branches?
+                .FirstOrDefault()?
+                .game;
+
+            return (
+                true,
+                game?.biz ?? "",
+                branch.package_id ?? "",
+                branch.password ?? "",
+                "");
         }
     }
 }
