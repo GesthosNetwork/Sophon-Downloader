@@ -1,8 +1,8 @@
 using System;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
-using System.Net.Http;
 
 namespace Core
 {
@@ -17,53 +17,62 @@ namespace Core
             }
 
             string action = args[0];
-            string gameId = args[1];
+            string regionText = args[1];
             string matchingField = args[2];
             string updateFrom = args[3];
+            string updateTo = string.Empty;
+            string outputDir;
 
-            string updateTo = args.Length >= 6
-                    ? args[4]
-                    : "";
+            if (action.Equals("update", StringComparison.OrdinalIgnoreCase))
+            {
+                if (args.Length < 6)
+                {
+                    Logger.Error("Invalid arguments for update mode.");
+                    return;
+                }
 
-            string outputDir = args[^1];
+                updateTo = args[4];
+                outputDir = args[5];
+            }
+            else
+            {
+                outputDir = args[4];
+            }
+
             string encoded = "SEs0RSBTb3Bob24gRG93bmxvYWRlciBDb3B5cmlnaHQgKEMpIDIwMjYgR2VzdGhvc05ldHdvcms=";
             Console.WriteLine(Encoding.UTF8.GetString(Convert.FromBase64String(encoded)));
 
-            if (!Enum.TryParse(AppConfig.Config.Region, out Region region))
+            if (!Enum.TryParse(regionText, true, out Region region))
             {
+                Logger.Warning($"Invalid region '{regionText}', defaulting to OSREL.");
                 region = Region.OSREL;
             }
 
-            BranchType branch = Enum.TryParse(AppConfig.Config.Branch, true, out BranchType parsedBranch)
-                    ? parsedBranch
-                    : BranchType.Main;
+            Game.GameType gameType = region == Region.CNREL
+                ? Game.GameType.hk4e_cn
+                : Game.GameType.hk4e_global;
 
-            Game game = new(region, gameId);
+            Game game = new(gameType.ToString());
 
-            SophonUrl urlPrev = new(
-                    region,
-                    game.GetGameId(),
-                    BranchType.Main,
-                    AppConfig.Config.LauncherId,
-                    AppConfig.Config.PlatApp
-                );
+            BranchType branch = action.Equals("predownload", StringComparison.OrdinalIgnoreCase)
+                ? BranchType.PreDownload
+                : BranchType.Main;
 
-            SophonUrl urlNew = new(
-                    region,
-                    game.GetGameId(),
-                    branch,
-                    AppConfig.Config.LauncherId,
-                    AppConfig.Config.PlatApp
-                );
-
+            SophonUrl sophon = new(game, branch);
             updateFrom = NormalizeVersion(updateFrom);
             updateTo = NormalizeVersion(updateTo);
-            Logger.Info("Initializing region, branch, and game info...");
+
+            if (action.Equals("predownload", StringComparison.OrdinalIgnoreCase) &&
+                string.IsNullOrWhiteSpace(updateFrom))
+            {
+                updateFrom = "Latest";
+            }
+
+            Logger.Info("Initializing game and branch info...");
 
             try
             {
-                await urlPrev.GetBuildData();
-                await urlNew.GetBuildData();
+                await sophon.GetBuildData();
             }
             catch (HttpRequestException)
             {
@@ -80,10 +89,10 @@ namespace Core
                 return;
             }
 
-            string prevManifest = urlPrev.GetBuildUrl(updateFrom, false);
+            string prevManifest = sophon.GetBuildUrl(updateFrom, false);
             string newManifest = action.Equals("update", StringComparison.OrdinalIgnoreCase)
-                    ? urlNew.GetBuildUrl(updateTo, true)
-                    : "";
+                ? sophon.GetBuildUrl(updateTo, true)
+                : string.Empty;
 
             if (action.Equals("update", StringComparison.OrdinalIgnoreCase))
             {
@@ -95,29 +104,19 @@ namespace Core
                 Logger.Debug("Manifest: {0}", prevManifest);
             }
 
-            await Downloader.StartDownload(
-                prevManifest,
-                newManifest,
-                outputDir,
-                matchingField
-            );
+            await Downloader.StartDownload(prevManifest, newManifest, outputDir, matchingField);
         }
 
-        private static string NormalizeVersion(
-            string version)
+        private static string NormalizeVersion(string version)
         {
             if (string.IsNullOrWhiteSpace(version))
                 return string.Empty;
 
             if (version.Equals("Latest", StringComparison.OrdinalIgnoreCase))
-            {
                 return "Latest";
-            }
 
             if (version.Count(c => c == '.') == 1)
-            {
                 return version + ".0";
-            }
 
             return version;
         }

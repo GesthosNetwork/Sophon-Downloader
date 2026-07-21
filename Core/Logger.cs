@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Core
 {
@@ -13,47 +14,82 @@ namespace Core
             None = 4
         }
 
-        public static LogLevel MinimumLevel { get; set; } = LogLevel.Info;
-
+        public static LogLevel MinimumLevel {get; set;} = LogLevel.Info;
         private static readonly object SyncObject = new();
 
-        private static string? _currentProgressText, _currentLineText;
-        private static int _lastProgressLength, _lastLineLength;
-        private static bool _progressVisible, _lineVisible;
+        private static readonly Dictionary<LogLevel, (string Tag, ConsoleColor Color)> LogInfo = new()
+        {
+            [LogLevel.Debug] = ("DEBUG", ConsoleColor.DarkGray),
+            [LogLevel.Info] = ("INFO", ConsoleColor.Green),
+            [LogLevel.Warning] = ("WARN", ConsoleColor.Yellow),
+            [LogLevel.Error] = ("ERROR", ConsoleColor.Red)
+        };
+
+        private static int _progressLength;
+        private static int _lineLength;
+        private static int _statusLength;
+        private static bool _progressVisible;
+        private static bool _lineVisible;
+        private static bool _statusVisible;
 
         public static void SetLevel(string level)
         {
             MinimumLevel = level.ToUpperInvariant() switch
             {
-                "DEBUG"   => LogLevel.Debug,
-                "INFO"    => LogLevel.Info,
+                "DEBUG" => LogLevel.Debug,
+                "INFO" => LogLevel.Info,
                 "WARNING" => LogLevel.Warning,
-                "ERROR"   => LogLevel.Error,
-                "NONE"    => LogLevel.None,
-                _         => LogLevel.Info
+                "ERROR" => LogLevel.Error,
+                "NONE" => LogLevel.None,
+                _ => LogLevel.Info
             };
         }
 
-        public static void Info(string message, params object[] args) =>
-            Write(LogLevel.Info, "INFO", ConsoleColor.Green, message, args);
-
         public static void Debug(string message, params object[] args) =>
-            Write(LogLevel.Debug, "DEBUG", ConsoleColor.DarkGray, message, args);
+            WriteLog(LogLevel.Debug, message, args);
+
+        public static void Info(string message, params object[] args) =>
+            WriteLog(LogLevel.Info, message, args);
 
         public static void Warning(string message, params object[] args) =>
-            Write(LogLevel.Warning, "WARN", ConsoleColor.Yellow, message, args);
+            WriteLog(LogLevel.Warning, message, args);
 
         public static void Error(string message, params object[] args) =>
-            Write(LogLevel.Error, "ERROR", ConsoleColor.Red, message, args);
+            WriteLog(LogLevel.Error, message, args);
 
         public static void WarningRefresh(string message, params object[] args) =>
-            RefreshLine(LogLevel.Warning, "WARN", ConsoleColor.Yellow, message, args);
+            RefreshLog(LogLevel.Warning, message, args);
 
         public static void InfoRefresh(string message, params object[] args) =>
-            RefreshLine(LogLevel.Info, "INFO", ConsoleColor.Green, message, args);
+            RefreshLog(LogLevel.Info, message, args);
 
         public static void ErrorRefresh(string message, params object[] args) =>
-            RefreshLine(LogLevel.Error, "ERROR", ConsoleColor.Red, message, args);
+            RefreshLog(LogLevel.Error, message, args);
+
+        public static void SetStatus(string text)
+        {
+            lock (SyncObject)
+            {
+                if (Console.IsOutputRedirected)
+                {
+                    Console.WriteLine(text);
+                    return;
+                }
+
+                Clear(ref _statusVisible, _statusLength);
+                Console.WriteLine(text);
+                _statusLength = text.Length;
+                _statusVisible = true;
+            }
+        }
+
+        public static void ClearStatus()
+        {
+            lock (SyncObject)
+            {
+                Clear(ref _statusVisible, _statusLength);
+            }
+        }
 
         public static void WriteProgress(string text)
         {
@@ -65,11 +101,10 @@ namespace Core
                     return;
                 }
 
-                ClearOutput(Math.Max(_lastProgressLength, text.Length));
+                Clear(ref _progressVisible, _progressLength);
                 Console.Write(text);
 
-                _currentProgressText = text;
-                _lastProgressLength = text.Length;
+                _progressLength = text.Length;
                 _progressVisible = true;
             }
         }
@@ -78,132 +113,100 @@ namespace Core
         {
             lock (SyncObject)
             {
-                ClearIfVisible(ref _lineVisible, _lastLineLength);
-                ClearIfVisible(ref _progressVisible, _lastProgressLength);
+                Clear(ref _lineVisible, _lineLength);
+                Clear(ref _progressVisible, _progressLength);
+                Clear(ref _statusVisible, _statusLength);
             }
         }
 
-        private static bool IsEnabled(LogLevel level) =>
-            level >= MinimumLevel && MinimumLevel != LogLevel.None;
-
-        private static void Write(
-            LogLevel level,
-            string levelText,
-            ConsoleColor levelColor,
-            string message,
-            params object[] args)
+        private static void WriteLog(LogLevel level, string message, params object[] args)
         {
-            if (!IsEnabled(level))
+            if (!Enabled(level))
                 return;
 
+            var info = LogInfo[level];
             lock (SyncObject)
             {
-                ClearIfVisible(ref _lineVisible, _lastLineLength);
-                ClearIfVisible(ref _progressVisible, _lastProgressLength);
-                WriteFormatted(levelText, levelColor, message, args);
+                Clear(ref _lineVisible, _lineLength);
+                Clear(ref _progressVisible, _progressLength);
+                WriteFormatted(info.Tag, info.Color, message, args);
             }
         }
 
-        private static void RefreshLine(
-            LogLevel level,
-            string levelText,
-            ConsoleColor levelColor,
-            string message,
-            params object[] args)
+        private static void RefreshLog(LogLevel level, string message, params object[] args)
         {
-            if (!IsEnabled(level))
+            if (!Enabled(level))
                 return;
 
+            var info = LogInfo[level];
             lock (SyncObject)
             {
                 if (Console.IsOutputRedirected)
                 {
-                    WriteFormatted(levelText, levelColor, message, args);
+                    WriteFormatted(info.Tag, info.Color, message, args);
                     return;
                 }
 
                 string timestamp = $"[{DateTime.Now:HH:mm:ss}]";
-                string content = FormatMessage(message, args);
-                string fullText = $"{timestamp}[{levelText}] {content}";
+                string content = Format(message, args);
+                string text = $"{timestamp}[{info.Tag}] {content}";
 
-                ClearOutput(Math.Max(_lastLineLength, fullText.Length));
-
-                WriteTag(timestamp, levelText, levelColor);
+                ClearOutput(Math.Max(_lineLength, text.Length));
+                WriteTag(timestamp, info.Tag, info.Color);
                 Console.Write(content);
 
-                _currentLineText = fullText;
-                _lastLineLength = fullText.Length;
+                _lineLength = text.Length;
                 _lineVisible = true;
             }
         }
 
+        private static bool Enabled(LogLevel level) =>
+            MinimumLevel != LogLevel.None &&
+            level >= MinimumLevel;
+
         private static void WriteFormatted(
-            string levelText,
-            ConsoleColor color,
-            string message,
-            params object[] args)
+            string tag, ConsoleColor color,
+            string message, params object[] args)
         {
-            WriteTag($"[{DateTime.Now:HH:mm:ss}]", levelText, color);
-            Console.WriteLine(FormatMessage(message, args));
+            WriteTag($"[{DateTime.Now:HH:mm:ss}]", tag, color);
+            Console.WriteLine(Format(message, args));
         }
 
         private static void WriteTag(
             string timestamp,
-            string levelText,
-            ConsoleColor color)
+            string tag, ConsoleColor color)
         {
             Console.Write(timestamp);
-
-            var previousColor = Console.ForegroundColor;
+            ConsoleColor old = Console.ForegroundColor;
             Console.ForegroundColor = color;
-            Console.Write($"[{levelText}]");
-            Console.ForegroundColor = previousColor;
-
+            Console.Write($"[{tag}]");
+            Console.ForegroundColor = old;
             Console.Write(' ');
         }
 
-        private static string FormatMessage(string message, object[] args)
+        private static string Format(string message, object[] args)
         {
-            if (args is null || args.Length == 0)
-                return message;
+            if (args?.Length > 0)
+                try { return string.Format(message, args); }
+                catch {}
 
-            try
-            {
-                return string.Format(message, args);
-            }
-            catch
-            {
-                return $"{message} | {JoinArgs(args)}";
-            }
+            return args?.Length > 0
+                ? $"{message} | {string.Join(", ", args)}"
+                : message;
         }
 
-        private static string JoinArgs(object[] args)
-        {
-            var parts = new string[args.Length];
-
-            for (int i = 0; i < args.Length; i++)
-                parts[i] = args[i]?.ToString() ?? "null";
-
-            return string.Join(", ", parts);
-        }
-
-        private static void ClearOutput(int length)
-        {
-            Console.Write("\r");
-
-            if (length > 0)
-                Console.Write(new string(' ', length));
-
-            Console.Write("\r");
-        }
-
-        private static void ClearIfVisible(ref bool visible, int lastLength)
+        private static void Clear(ref bool visible, int length)
         {
             if (!visible || Console.IsOutputRedirected)
                 return;
 
-            ClearOutput(lastLength);
+            ClearOutput(length);
             visible = false;
+        }
+
+        private static void ClearOutput(int length)
+        {
+            Console.Write($"\r{new string(' ', length)}\r");
         }
     }
 }

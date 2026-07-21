@@ -1,41 +1,71 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Core
 {
-    class Game
+    public class Game
     {
-        public string GameId { get; set; } = "";
-
         public enum GameType
         {
-            hk4e,
+            hk4e_global, hk4e_cn
         }
 
-        static readonly Dictionary<(Region, GameType), string> gameMap = new()
+        private sealed record GameInfo(
+            Region Region,
+            string GameId,
+            string LauncherId,
+            string PackageId,
+            string PlatApp,
+            string MainPassword,
+            string PreDownloadPassword);
+
+        private static readonly Dictionary<GameType, GameInfo> GameMap = new()
         {
-            {(Region.OSREL, GameType.hk4e), "gopR6Cufr3"},
-            {(Region.CNREL, GameType.hk4e), "1Z8W5NHUQb"},
+            [GameType.hk4e_global] = new(
+                Region.OSREL,
+                "gopR6Cufr3",
+                "VYTpXlbWo8",
+                "ScSYQBFhu9",
+                "ddxf6vlr1reo",
+                "bDL4JUHL625x",
+                "ZOJpUiKu4Sme"),
+
+            [GameType.hk4e_cn] = new(
+                Region.CNREL,
+                "1Z8W5NHUQb",
+                "jGHBHlcOq1",
+                "8xfMve0uwQ",
+                "ddxf5qt290cg",
+                "CW8GbLNU8f",
+                "ZOJpUiKu4Sme")
         };
 
-        public Game(Region region, string id)
+        private readonly GameInfo _info;
+
+        public GameType Type { get; }
+        public Region Region => _info.Region;
+        public string GameId => _info.GameId;
+        public string LauncherId => _info.LauncherId;
+        public string PackageId => _info.PackageId;
+        public string PlatApp => _info.PlatApp;
+
+        public Game(string id)
         {
-            bool isRel = !Enum.TryParse(id, out GameType game);
-            if (isRel)
+            if (!Enum.TryParse(id, true, out GameType game) ||
+                !GameMap.TryGetValue(game, out var info))
             {
-                this.GameId = id;
-            } else
-            {
-                this.GameId = gameMap[(region, game)];
+                throw new ArgumentException($"Unsupported game '{id}'.");
             }
+
+            Type = game;
+            _info = info;
         }
 
-        public string GetGameId()
+        public string GetPassword(BranchType branch) => branch switch
         {
-            return this.GameId;
-        }
+            BranchType.Main => _info.MainPassword,
+            BranchType.PreDownload => _info.PreDownloadPassword,
+            _ => throw new ArgumentOutOfRangeException(nameof(branch))
+        };
     }
 }

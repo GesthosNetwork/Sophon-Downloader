@@ -6,25 +6,23 @@ namespace Core
 {
     public class Program
     {
-        public static async Task<int> Main(string[] args)
+        static Program()
+        {
+            var version = Assembly
+                    .GetExecutingAssembly()
+                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                    .InformationalVersion
+                ?? "unknown";
+
+            Console.Title = $"HK4E Sophon Downloader v{version}";
+        }
+
+        public static async Task<int> Main()
         {
             Utils.CenterConsole();
             AppConfig.Load();
 
-            if (args.Length > 0)
-                CliHandler.ParseArgsAndSetConfig(args);
-
-            var version = Assembly
-                .GetExecutingAssembly()
-                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-                .InformationalVersion ?? "unknown";
-
-            Console.Title = $"HK4E Sophon Downloader v{version}";
-
-            if (args.Length == 0)
-                return await InteractiveMenu.RunInteractiveMenu();
-
-            return await CliHandler.RunWithArgs(args);
+            return await InteractiveMenu.RunInteractiveMenu();
         }
     }
 }

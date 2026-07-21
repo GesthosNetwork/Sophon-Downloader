@@ -7,242 +7,276 @@ namespace Core
 {
     public static class InteractiveMenu
     {
+        private sealed class VersionEntry
+        {
+            public string From {get;}
+            public string To {get;}
+
+            public VersionEntry(string from, string to = "")
+                => (From, To) = (from, to);
+        }
+
         private static VersionsConfig? _versionsCache;
 
         private static string?
-            _cacheRegion,
-            _cacheBranch,
-            _cacheLauncherId,
-            _cachePackageId,
-            _cachePlatApp,
-            _cachePassword;
+            _cacheGameKey,
+            _cacheBranch;
 
         public static async Task<int> RunInteractiveMenu()
         {
             while (true)
             {
                 Console.Clear();
-                Console.WriteLine("=== Sophon Downloader ===\n");
-                Console.WriteLine("[1] Full Download");
-                Console.WriteLine("[2] Update Download");
-                Console.WriteLine("[0] Exit");
-                Console.Write("\nChoose: ");
+                Console.WriteLine("""
+                === Select Game ===
 
-                string input = Console.ReadLine()?.Trim() ?? "";
+                [1] OSREL - Global (Genshin Impact)
+                [2] CNREL - China (YuanShen)
+                [X] Exit
+                """);
 
-                if (input == "0")
-                    return 0;
-
-                if (input == "1")
-                    await RunDownloadCategoryMenu("full");
-                else if (input == "2")
-                    await RunDownloadCategoryMenu("update");
+                switch (ReadInput())
+                {
+                    case "1": await SelectPackageMenu(Region.OSREL); break;
+                    case "2": await SelectPackageMenu(Region.CNREL); break;
+                    case "x": return 0;
+                }
             }
         }
 
-        private static async Task RunDownloadCategoryMenu(string mode)
+        private static async Task SelectPackageMenu(Region region)
         {
-            string[] langs =
+            while (true)
             {
-                "game",
-                "en-us",
-                "ja-jp",
-                "zh-cn",
-                "ko-kr"
+                Console.Clear();
+                Console.WriteLine($"""
+                === {GetRegionTitle(region)} Package ===
+
+                [1] Full
+                [2] Update
+                [3] Pre-download
+                [0] Back
+                [X] Exit
+                """);
+
+                switch (ReadInput())
+                {
+                    case "1": await RunLanguageMenu(region, "full"); break;
+                    case "2": await RunLanguageMenu(region, "update"); break;
+                    case "3": await RunLanguageMenu(region, "predownload"); break;
+                    case "0": return;
+                    case "x": return;
+                }
+            }
+        }
+
+        private static async Task RunLanguageMenu(Region region, string mode)
+        {
+            string[] languages =
+            {
+                "game", "en-us", "ja-jp", "zh-cn", "ko-kr"
             };
 
             while (true)
             {
                 Console.Clear();
-                Console.WriteLine($"=== {(mode == "full" ? "Full" : "Update")} Download ===\n");
+                Console.WriteLine($"=== {FormatMode(mode)} ===\n");
 
-                for (int i = 0; i < langs.Length; i++)
-                    Console.WriteLine($"[{i + 1}] {langs[i]}");
+                for (int i = 0; i < languages.Length; i++)
+                    Console.WriteLine($"[{i + 1}] {languages[i]}");
 
-                Console.WriteLine("[0] Back");
-                Console.Write("\nChoose: ");
+                Console.WriteLine("""
+                
+                [0] Back
+                [X] Exit
+                """);
 
-                string input = Console.ReadLine()?.Trim() ?? "";
+                string input = ReadInput();
 
-                if (input == "0")
-                    return;
+                if (input == "x") return;
+                if (input == "0") return;
 
-                if (int.TryParse(input, out int c) &&
-                    c >= 1 &&
-                    c <= langs.Length)
-                {
-                    await RunVersionPickerMenu(mode, langs[c - 1]);
-                }
+                if (!int.TryParse(input, out int choice))
+                    continue;
+
+                if ((uint)(choice - 1) >= languages.Length)
+                    continue;
+
+                string language = languages[choice - 1];
+
+                await (mode == "predownload"
+                    ? RunPreDownload(region, language)
+                    : RunVersionPickerMenu(region, mode, language));
             }
         }
 
-        private static async Task<VersionsConfig> GetCachedVersionsAsync(SophonUrl sophon)
+        private static async Task<VersionsConfig> GetCachedVersionsAsync(
+            SophonUrl sophon,
+            Game game,
+            BranchType branch)
         {
-            string currentRegion = AppConfig.Config.Region;
-            string currentBranch = AppConfig.Config.Branch;
-            string currentLauncherId = AppConfig.Config.LauncherId;
-            string currentPackageId = AppConfig.Config.PackageId;
-            string currentPlatApp = AppConfig.Config.PlatApp;
-            string currentPassword = AppConfig.Config.Password;
+            string gameKey = $"{game.Type}_{game.Region}_{game.GameId}";
+            string branchKey = branch.ToString();
 
             if (_versionsCache != null &&
-                _cacheRegion == currentRegion &&
-                _cacheBranch == currentBranch &&
-                _cacheLauncherId == currentLauncherId &&
-                _cachePackageId == currentPackageId &&
-                _cachePlatApp == currentPlatApp &&
-                _cachePassword == currentPassword)
+                _cacheGameKey == gameKey &&
+                _cacheBranch == branchKey)
             {
                 return _versionsCache;
             }
 
+            Console.Clear();
             Logger.Info("Fetching version list...");
 
             await sophon.GetBuildData();
 
             _versionsCache = await sophon.GetVersionsAsync();
-
-            _cacheRegion = currentRegion;
-            _cacheBranch = currentBranch;
-            _cacheLauncherId = currentLauncherId;
-            _cachePackageId = currentPackageId;
-            _cachePlatApp = currentPlatApp;
-            _cachePassword = currentPassword;
+            _cacheGameKey = gameKey;
+            _cacheBranch = branchKey;
 
             return _versionsCache;
         }
 
-        private static async Task RunVersionPickerMenu(string mode, string lang)
+        private static async Task RunVersionPickerMenu(Region region, string mode, string lang)
         {
-            Region region = Enum.TryParse(
-                AppConfig.Config.Region,
-                true,
-                out Region parsedRegion)
-                    ? parsedRegion
-                    : Region.OSREL;
-
-            string gameId = new Game(
-                region,
-                Game.GameType.hk4e.ToString()
-            ).GetGameId();
-
-            BranchType branch = Enum.TryParse(
-                AppConfig.Config.Branch,
-                true,
-                out BranchType parsedBranch)
-                    ? parsedBranch
-                    : BranchType.Main;
-
-            SophonUrl sophon = new SophonUrl(
-                region,
-                gameId,
-                branch,
-                AppConfig.Config.LauncherId,
-                AppConfig.Config.PlatApp
-            );
-
+            Game game = CreateGame(region);
+            SophonUrl sophon = new(game, BranchType.Main);
             VersionsConfig versions;
 
             try
             {
-                Console.Clear();
-                Console.WriteLine($"=== {(mode == "full" ? "Full" : "Update")} Download: {lang} ===\n");
-
-                versions = await GetCachedVersionsAsync(sophon);
+                versions = await GetCachedVersionsAsync(sophon, game, BranchType.Main);
             }
             catch (Exception ex)
             {
                 Logger.Error("Cannot get version list: {0}", ex.Message);
-                Console.WriteLine("\nPress any key...");
-                Console.ReadKey();
-                return;
+                Pause(); return;
             }
 
-            string[][] versionList = mode == "full"
-                ? versions.Full
-                    .Select(v => new[] { v })
-                    .ToArray()
-                : versions.Update
-                    .Select(v => v.ToArray())
-                    .ToArray();
+            VersionEntry[] versionsList = mode == "full"
+                ? versions.Full.Select(x => new VersionEntry(x)).ToArray()
+                : versions.Update.Select(x => new VersionEntry(x[0], x[1])).ToArray();
 
             while (true)
             {
                 Console.Clear();
-                Console.WriteLine($"=== {(mode == "full" ? "Full" : "Update")} Download: {lang} ===\n");
+                Console.WriteLine($"=== {FormatMode(mode)} Download: {lang} ===\n");
 
-                for (int i = 0; i < versionList.Length; i++)
+                for (int i = 0; i < versionsList.Length; i++)
                 {
-                    var v = versionList[i];
-
-                    string label = mode == "full"
-                        ? $"Version {v[0]}"
-                        : $"From {v[0]} → {v[1]}";
-
-                    Console.WriteLine($"[{i + 1}] {label}");
+                    VersionEntry item = versionsList[i];
+                    Console.WriteLine(mode == "full"
+                        ? $"[{i + 1}] Version {item.From}"
+                        : $"[{i + 1}] From {item.From} -> {item.To}");
                 }
 
-                Console.WriteLine("[0] Back");
-                Console.Write("\nChoose: ");
+                Console.WriteLine("""
+                
+                [0] Back
+                [X] Exit
+                """);
 
-                string input = Console.ReadLine()?.Trim() ?? "";
+                string input = ReadInput();
 
-                if (input == "0")
-                    return;
+                if (input == "x") return;
+                if (input == "0") return;
 
-                if (!int.TryParse(input, out int choice))
+                if (!int.TryParse(input, out int choice) ||
+                    choice < 1 ||
+                    choice > versionsList.Length)
                     continue;
 
-                if (choice < 1 || choice > versionList.Length)
-                    continue;
+                VersionEntry selected = versionsList[choice - 1];
+                string from = NormalizeVersion(selected.From);
+                string[] args;
 
-                string[] selected = versionList[choice - 1];
-                string v1 = NormalizeVersion(selected[0]);
-                string outputDir;
+                bool isFull = mode == "full";
+                string to = isFull
+                    ? ""
+                    : NormalizeVersion(selected.To);
 
-                if (mode == "full")
-                {
-                    outputDir = Path.Combine("Downloads", $"{lang}_{v1}");
+                string output = Path.Combine("Downloads", isFull
+                    ? $"{lang}_{from}"
+                    : $"{lang}_{from}_{to}_diff");
 
-                    string[] args =
-                    {
-                        "full",
-                        gameId,
-                        lang,
-                        v1,
-                        outputDir
-                    };
+                args = isFull
+                    ? ["full", region.ToString(), lang, from, output]
+                    : ["update", region.ToString(), lang, from, to, output];
 
-                    Console.Clear();
-                    Console.WriteLine($"Executing:\nSophon.Downloader.exe {string.Join(" ", args)}\n");
-
-                    await DownloadService.RunDownload(args);
-                }
-                else
-                {
-                    string v2 = NormalizeVersion(selected[1]);
-
-                    outputDir = Path.Combine("Downloads", $"{lang}_{v1}_{v2}_diff");
-
-                    string[] args =
-                    {
-                        "update",
-                        gameId,
-                        lang,
-                        v1,
-                        v2,
-                        outputDir
-                    };
-
-                    Console.Clear();
-                    Console.WriteLine($"Executing:\nSophon.Downloader.exe {string.Join(" ", args)}\n");
-
-                    await DownloadService.RunDownload(args);
-                }
-
-                Console.WriteLine("\nPress any key to return...");
-                Console.ReadKey();
+                await StartDownload(args);
+                return;
             }
+        }
+
+        private static async Task RunPreDownload(Region region, string lang)
+        {
+            SophonUrl sophon = new(CreateGame(region), BranchType.PreDownload);
+            try
+            {
+                await sophon.GetBuildData();
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Cannot initialize pre-download: {0}", ex.Message);
+                Pause(); return;
+            }
+
+            await StartDownload(
+            [
+                "predownload",
+                region.ToString(),
+                lang,
+                NormalizeVersion(await sophon.GetLatestVersion() ?? "Latest"),
+                Path.Combine("Downloads", $"{lang}_predownload")
+            ]);
+        }
+
+        private static async Task StartDownload(string[] args)
+        {
+            Console.Clear();
+            Console.WriteLine("Starting download...\n");
+            await DownloadService.RunDownload(args);
+            Pause();
+        }
+
+        private static Game CreateGame(Region region)
+        {
+            return new Game(region == Region.CNREL
+                ? Game.GameType.hk4e_cn.ToString()
+                : Game.GameType.hk4e_global.ToString());
+        }
+
+        private static string ReadInput()
+        {
+            Console.Write("Choose: ");
+            return Console.ReadLine()?.Trim().ToLowerInvariant() ?? "";
+        }
+
+        private static void Pause()
+        {
+            Console.WriteLine("\nPress any key...");
+            Console.ReadKey();
+        }
+
+        private static string FormatMode(string mode)
+        {
+            return mode switch
+            {
+                "full" => "Full",
+                "update" => "Update",
+                "predownload" => "Pre-download",
+                _ => mode
+            };
+        }
+
+        private static string GetRegionTitle(Region region)
+        {
+            return region switch
+            {
+                Region.OSREL => "OSREL - Global (Genshin Impact)",
+                Region.CNREL => "CNREL - China (YuanShen)",
+                _ => region.ToString()
+            };
         }
 
         private static string NormalizeVersion(string version)
@@ -250,15 +284,14 @@ namespace Core
             if (string.IsNullOrWhiteSpace(version))
                 return string.Empty;
 
-            var parts = version.Split('.');
+            string[] parts = version.Split('.');
 
-            if (parts.Length == 1)
-                return $"{parts[0]}.0.0";
-
-            if (parts.Length == 2)
-                return $"{parts[0]}.{parts[1]}.0";
-
-            return version;
+            return parts.Length switch
+            {
+                1 => $"{parts[0]}.0.0",
+                2 => $"{parts[0]}.{parts[1]}.0",
+                _ => version
+            };
         }
     }
 }
