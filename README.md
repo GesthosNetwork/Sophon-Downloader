@@ -32,26 +32,6 @@ To compile the project:
 2. The release output will automatically be generated inside the `bin` folder
 
 
-## How to Use
-
-### Interactive Menu (Recommended)
-
-Run: `Sophon.Downloader.exe`
-
-You will see:
-
-```
-=== Sophon Downloader ===
-
-[1] Full Download
-[2] Update Download
-[0] Exit
-```
-
-Navigate using number keys and follow the prompts.
-The application will automatically detect available regions, branches, and versions through the configured API.
-
-
 ## Configuration
 
 The configuration file is automatically generated on first launch.
@@ -60,19 +40,19 @@ Example:
 
 ```json
 {
-  "LogLevel": "INFO",
   "DownloadMode": "Parallel",
   "Threads": 6,
-  "MaxHttpHandle": 48
+  "MaxHttpHandle": 48,
+  "LogLevel": "INFO"
 }
 ```
 
 | Parameters | Description |
 |---|---|
-| `LogLevel` | Minimum logging level (`DEBUG`, `INFO`, `WARNING`, or `ERROR`) |
 | `DownloadMode` | Download mode (`Parallel` or `Sequential`) |
 | `Threads` | Number of concurrent download workers |
 | `MaxHttpHandle` | Maximum number of HTTP connections |
+| `LogLevel` | Minimum logging level (`DEBUG`, `INFO`, `WARNING`, or `ERROR`) |
 
 
 ## Download Performance

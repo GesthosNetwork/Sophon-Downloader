@@ -1,6 +1,6 @@
 using Google.Protobuf;
 using Sophon.Infos;
-using Sophon.Structs;
+using Sophon;
 using System;
 using System.Buffers;
 using System.IO;
@@ -119,13 +119,12 @@ namespace Sophon.Helper
                 await hash.AppendAsync(outStream, token);
 
                 return hash.GetHashAndReset()
-                           .AsSpan()
-                           .SequenceEqual(chunkXxh64Hash);
+                    .AsSpan()
+                    .SequenceEqual(chunkXxh64Hash);
             }
             catch (Exception ex) when (!token.IsCancellationRequested)
             {
-                DummyInstance.PushLogWarning(
-                    $"An error occurred while checking XXH64 hash for chunk: {chunk.ChunkName} | 0x{chunk.ChunkOffset:x8} -> L: 0x{chunk.ChunkSizeDecompressed:x8} for: {assetName}\r\n{ex}");
+                DummyInstance.PushLogWarning($"An error occurred while checking XXH64 hash for chunk: {chunk.ChunkName} | 0x{chunk.ChunkOffset:x8} -> L: 0x{chunk.ChunkSizeDecompressed:x8} for: {assetName}\r\n{ex}");
                 return false;
             }
         }

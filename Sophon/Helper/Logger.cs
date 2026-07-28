@@ -4,10 +4,7 @@ namespace Sophon.Helper
 {
     public enum LogLevel
     {
-        Info,
-        Warning,
-        Error,
-        Debug
+        Info, Warning, Error, Debug
     }
 
     public static class Logger
@@ -19,7 +16,7 @@ namespace Sophon.Helper
             LogHandler?.Invoke(obj, new LogStruct
             {
                 LogLevel = LogLevel.Debug,
-                Message  = message
+                Message = message
             });
         }
 
@@ -28,7 +25,7 @@ namespace Sophon.Helper
             LogHandler?.Invoke(obj, new LogStruct
             {
                 LogLevel = LogLevel.Info,
-                Message  = message
+                Message = message
             });
         }
 
@@ -37,7 +34,7 @@ namespace Sophon.Helper
             LogHandler?.Invoke(obj, new LogStruct
             {
                 LogLevel = LogLevel.Warning,
-                Message  = message
+                Message = message
             });
         }
 
@@ -46,7 +43,7 @@ namespace Sophon.Helper
             LogHandler?.Invoke(obj, new LogStruct
             {
                 LogLevel = LogLevel.Error,
-                Message  = message
+                Message = message
             });
         }
     }
@@ -54,6 +51,6 @@ namespace Sophon.Helper
     public struct LogStruct
     {
         public LogLevel LogLevel;
-        public string   Message;
+        public string Message;
     }
 }

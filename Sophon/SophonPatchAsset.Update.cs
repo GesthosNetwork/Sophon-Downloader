@@ -1,6 +1,6 @@
 using Sophon.Helper;
 using Sophon.Infos;
-using Sophon.Structs;
+using Sophon;
 using SharpHDiffPatch.Core;
 using System;
 using System.Buffers;

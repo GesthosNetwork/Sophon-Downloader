@@ -2,7 +2,7 @@ using Google.Protobuf.Collections;
 using Sophon.Helper;
 using Sophon.Infos;
 using Sophon.Protos;
-using Sophon.Structs;
+using Sophon;
 using System;
 using System.Collections.Generic;
 using System.Linq;

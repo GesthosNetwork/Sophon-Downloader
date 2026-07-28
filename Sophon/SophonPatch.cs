@@ -1,7 +1,7 @@
 using Sophon.Helper;
 using Sophon.Infos;
 using Sophon.Protos;
-using Sophon.Structs;
+using Sophon;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -58,12 +58,7 @@ namespace Sophon
 
             SophonPatchProto patchManifestProto = await TaskExtensions
                 .WaitForRetryAsync<SophonPatchProto>(
-                    () => manifestFromProtoTaskCallback,
-                    TaskExtensions.DefaultTimeoutSec,
-                    null,
-                    null,
-                    null,
-                    token);
+                () => manifestFromProtoTaskCallback, TaskExtensions.DefaultTimeoutSec, null, null, null, token);
 
             SophonChunksInfo chunksInfoDownloadOver = chunksInfo.CopyWithNewBaseUrl(downloadOverUrl);
 
@@ -88,7 +83,6 @@ namespace Sophon
                 }
 
                 var chunk = patchAssetInfo.Chunk;
-
                 if (string.IsNullOrEmpty(chunk.OriginalFileName))
                 {
                     yield return new SophonPatchAsset

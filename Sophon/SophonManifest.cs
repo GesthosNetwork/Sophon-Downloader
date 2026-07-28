@@ -1,7 +1,7 @@
 using Sophon.Helper;
 using Sophon.Infos;
 using Sophon.Protos;
-using Sophon.Structs;
+using Sophon;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -48,12 +48,7 @@ namespace Sophon
             );
 
             var manifestProto = await TaskExtensions.WaitForRetryAsync(
-                () => manifestProtoTaskCallback,
-                TaskExtensions.DefaultTimeoutSec,
-                null,
-                null,
-                null,
-                token
+                () => manifestProtoTaskCallback, TaskExtensions.DefaultTimeoutSec, null, null, null, token
             );
 
             foreach (var asset in manifestProto.Assets)

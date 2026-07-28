@@ -1,5 +1,5 @@
 using Sophon.Helper;
-using Sophon.Structs;
+using Sophon;
 using System;
 using System.Buffers;
 using System.Diagnostics;
@@ -85,7 +85,7 @@ namespace Sophon
                 if (forceVerification || !isVerified)
                 {
                     isMismatch = !(chunkName.TryGetChunkXxh64Hash(out var hash) &&
-                                   await chunk.CheckChunkXxh64HashAsync(AssetName, fs, hash, true, token).ConfigureAwait(false));
+                    await chunk.CheckChunkXxh64HashAsync(AssetName, fs, hash, true, token).ConfigureAwait(false));
 
                     if (File.Exists(verifiedPath)) File.Delete(verifiedPath);
                 }

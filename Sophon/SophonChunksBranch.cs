@@ -1,4 +1,4 @@
-using Sophon.Structs;
+using Sophon;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -35,11 +35,7 @@ namespace Sophon
             CancellationToken token = default)
         {
             var sophonBranch = await GetSophonBranchInfo<SophonManifestBuildBranch>(
-                client,
-                url,
-                SophonContext.Default.SophonManifestBuildBranch,
-                HttpMethod.Get,
-                token
+                client, url, SophonContext.Default.SophonManifestBuildBranch, HttpMethod.Get, token
             );
 
             if (sophonBranch.Data == null)

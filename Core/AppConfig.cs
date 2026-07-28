@@ -9,19 +9,16 @@ namespace Core
     {
         private static readonly string ConfigPath = "config.json";
 
-        private static readonly int MaxThreadsCap =
-            Math.Max(1, Environment.ProcessorCount);
-
-        private static readonly int MaxHttpHandleCap =
-            ComputeMaxHttpHandleCap();
+        private static readonly int 
+            MaxThreadsCap = Math.Max(1, Environment.ProcessorCount),
+            MaxHttpHandleCap = ComputeMaxHttpHandleCap();
 
         public string DownloadMode {get; set;} = "Parallel";
         public int Threads {get; set;} = ComputeAdaptiveThreads();
         public int MaxHttpHandle {get; set;} = ComputeAdaptiveMaxHttpHandle();
-        public string LogLevel {get; set;} = "INFO";
+        public string LogLevel {get; set;} = "DEBUG";
 
         private static AppConfig? _config;
-
         public static AppConfig Config
         {
             get => _config ??= new AppConfig();
@@ -40,14 +37,12 @@ namespace Core
             {
                 var cfg = new AppConfig();
                 cfg.Save();
-
                 return cfg;
             }
 
             try
             {
                 using var doc = JsonDocument.Parse(File.ReadAllText(ConfigPath));
-
                 var root = doc.RootElement;
                 var cfg = new AppConfig();
 
@@ -61,21 +56,19 @@ namespace Core
                     }
                 }
 
-                if (root.TryGetProperty("Threads", out var threads) &&
-                    threads.TryGetInt32(out int threadValue))
+                if (root.TryGetProperty("Threads", out var threads)
+                    && threads.TryGetInt32(out int threadValue))
                 {
-                    if (threadValue > 0 &&
-                        threadValue <= MaxThreadsCap)
+                    if (threadValue > 0 && threadValue <= MaxThreadsCap)
                     {
                         cfg.Threads = threadValue;
                     }
                 }
 
-                if (root.TryGetProperty("MaxHttpHandle", out var handles) &&
-                    handles.TryGetInt32(out int handleValue))
+                if (root.TryGetProperty("MaxHttpHandle", out var handles)
+                    && handles.TryGetInt32(out int handleValue))
                 {
-                    if (handleValue > 0 &&
-                        handleValue <= MaxHttpHandleCap)
+                    if (handleValue > 0 && handleValue <= MaxHttpHandleCap)
                     {
                         cfg.MaxHttpHandle = handleValue;
                     }
@@ -101,7 +94,6 @@ namespace Core
             {
                 var fallback = new AppConfig();
                 fallback.Save();
-
                 return fallback;
             }
         }
@@ -109,24 +101,19 @@ namespace Core
         private static int ComputeAdaptiveThreads()
         {
             int cores = Environment.ProcessorCount;
-            int adaptive = cores <= 2
-                ? cores
-                : (int)Math.Ceiling(cores * 0.75);
-
+            int adaptive = cores <= 2 ? cores : (int)Math.Ceiling(cores * 0.75);
             return Math.Clamp(adaptive, 1, MaxThreadsCap);
         }
 
         private static int ComputeMaxHttpHandleCap()
         {
             long availableMb = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes / (1024 * 1024);
-
             return (int)Math.Clamp(availableMb / 8, 16, 1024);
         }
 
         private static int ComputeAdaptiveMaxHttpHandle()
         {
             int threads = ComputeAdaptiveThreads();
-
             return Math.Clamp(threads * 8, 4, MaxHttpHandleCap);
         }
 

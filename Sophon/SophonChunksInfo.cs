@@ -5,12 +5,12 @@ namespace Sophon.Infos
 {
     public class SophonChunksInfo : IEquatable<SophonChunksInfo>
     {
-        public string ChunksBaseUrl { get; set; }
-        public int ChunksCount { get; set; }
-        public int FilesCount { get; set; }
-        public long TotalSize { get; set; }
-        public long TotalCompressedSize { get; set; }
-        public bool IsUseCompression { get; set; }
+        public string ChunksBaseUrl {get; set;}
+        public int ChunksCount {get; set;}
+        public int FilesCount {get; set;}
+        public long TotalSize {get; set;}
+        public long TotalCompressedSize {get; set;}
+        public bool IsUseCompression {get; set;}
 
         public bool Equals(SophonChunksInfo other) =>
             other != null &&
@@ -25,14 +25,7 @@ namespace Sophon.Infos
             obj is SophonChunksInfo other && Equals(other);
 
         public override int GetHashCode() =>
-            HashCode.Combine(
-                ChunksBaseUrl,
-                ChunksCount,
-                FilesCount,
-                TotalSize,
-                TotalCompressedSize,
-                IsUseCompression
-            );
+            HashCode.Combine(ChunksBaseUrl, ChunksCount, FilesCount, TotalSize, TotalCompressedSize, IsUseCompression);
 
         public SophonChunksInfo CopyWithNewBaseUrl(string newBaseUrl) => new()
         {

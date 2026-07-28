@@ -1,6 +1,6 @@
 using Sophon.Helper;
 using Sophon.Infos;
-using Sophon.Structs;
+using Sophon;
 using System;
 using System.Buffers;
 using System.Diagnostics;
@@ -15,32 +15,28 @@ namespace Sophon
 {
     public enum SophonPatchMethod
     {
-        CopyOver,
-        DownloadOver,
-        Patch,
-        Remove
+        CopyOver, DownloadOver, Patch, Remove
     }
 
     public partial class SophonPatchAsset
     {
         internal const int BufferSize = 256 << 10;
+        public SophonChunksInfo PatchInfo {get; set;}
+        public SophonPatchMethod PatchMethod {get; set;}
+        public string PatchNameSource {get; set;}
+        public string PatchHash {get; set;}
+        public long PatchOffset {get; set;}
+        public long PatchSize {get; set;}
+        public long PatchChunkLength {get; set;}
+        public string OriginalFilePath {get; set;}
+        public string OriginalFileHash {get; set;}
+        public long OriginalFileSize {get; set;}
+        public string TargetFilePath {get; set;}
+        public string TargetFileDownloadOverBaseUrl {get; set;}
+        public string TargetFileHash {get; set;}
+        public long TargetFileSize {get; set;}
 
-        public SophonChunksInfo PatchInfo { get; set; }
-        public SophonPatchMethod PatchMethod { get; set; }
-        public string PatchNameSource { get; set; }
-        public string PatchHash { get; set; }
-        public long PatchOffset { get; set; }
-        public long PatchSize { get; set; }
-        public long PatchChunkLength { get; set; }
-        public string OriginalFilePath { get; set; }
-        public string OriginalFileHash { get; set; }
-        public long OriginalFileSize { get; set; }
-        public string TargetFilePath { get; set; }
-        public string TargetFileDownloadOverBaseUrl { get; set; }
-        public string TargetFileHash { get; set; }
-        public long TargetFileSize { get; set; }
-
-#nullable enable
+        #nullable enable
         public async Task DownloadPatchAsync(HttpClient client, string patchOutputDir, bool forceVerification = false, Action<long>? downloadReadDelegate = null, SophonDownloadSpeedLimiter? downloadSpeedLimiter = null, CancellationToken token = default)
         {
             if (PatchMethod is SophonPatchMethod.Remove or SophonPatchMethod.DownloadOver) return;

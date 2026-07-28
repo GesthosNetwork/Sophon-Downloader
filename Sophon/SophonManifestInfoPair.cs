@@ -2,17 +2,17 @@ using Sophon.Infos;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Sophon.Structs
+namespace Sophon
 {
     public class SophonChunkManifestInfoPair
     {
-        public SophonChunksInfo ChunksInfo { get; internal set; }
-        public SophonManifestInfo ManifestInfo { get; internal set; }
-        public SophonManifestBuildData OtherSophonBuildData { get; internal set; }
-        public SophonManifestPatchData OtherSophonPatchData { get; internal set; }
-        public bool IsFound { get; internal set; } = true;
-        public int ReturnCode { get; internal set; } = 0;
-        public string ReturnMessage { get; internal set; }
+        public SophonChunksInfo ChunksInfo {get; internal set;}
+        public SophonManifestInfo ManifestInfo {get; internal set;}
+        public SophonManifestBuildData OtherSophonBuildData {get; internal set;}
+        public SophonManifestPatchData OtherSophonPatchData {get; internal set;}
+        public bool IsFound {get; internal set;} = true;
+        public int ReturnCode {get; internal set;} = 0;
+        public string ReturnMessage {get; internal set;}
 
         public SophonChunkManifestInfoPair GetOtherManifestInfoPair(string matchingField)
         {

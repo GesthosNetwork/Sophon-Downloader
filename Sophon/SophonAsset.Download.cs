@@ -1,6 +1,6 @@
 using Sophon.Helper;
 using Sophon.Infos;
-using Sophon.Structs;
+using Sophon;
 using System;
 using System.Buffers;
 using System.Diagnostics;
@@ -23,15 +23,15 @@ namespace Sophon
         internal const int BufferSize = 256 << 10;
         private const int ZstdBufferSize = 0;
 
-        public string AssetName { get; internal set; }
-        public long AssetSize { get; internal set; }
-        public string AssetHash { get; internal set; }
-        public bool IsDirectory { get; internal set; }
-        public bool IsHasPatch { get; internal set; }
-        public SophonChunk[] Chunks { get; internal set; }
-        internal SophonDownloadSpeedLimiter DownloadSpeedLimiter { get; set; }
-        internal SophonChunksInfo SophonChunksInfo { get; set; }
-        internal SophonChunksInfo SophonChunksInfoAlt { get; set; }
+        public string AssetName {get; internal set;}
+        public long AssetSize {get; internal set;}
+        public string AssetHash {get; internal set;}
+        public bool IsDirectory {get; internal set;}
+        public bool IsHasPatch {get; internal set;}
+        public SophonChunk[] Chunks {get; internal set;}
+        internal SophonDownloadSpeedLimiter DownloadSpeedLimiter {get; set;}
+        internal SophonChunksInfo SophonChunksInfo {get; set;}
+        internal SophonChunksInfo SophonChunksInfoAlt {get; set;}
 
         public async ValueTask WriteToStreamAsync(HttpClient client, Stream outStream, DelegateWriteStreamInfo writeInfo = null, DelegateWriteDownloadInfo reportInfo = null, DelegateDownloadAssetComplete onComplete = null, CancellationToken token = default)
         {

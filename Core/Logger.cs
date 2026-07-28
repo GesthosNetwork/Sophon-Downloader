@@ -7,11 +7,7 @@ namespace Core
     {
         public enum LogLevel
         {
-            Debug = 0,
-            Info = 1,
-            Warning = 2,
-            Error = 3,
-            None = 4
+            Debug, Info, Warning, Error, None
         }
 
         public static LogLevel MinimumLevel {get; set;} = LogLevel.Info;

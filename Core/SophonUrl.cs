@@ -65,7 +65,6 @@ namespace Core
     public class VersionsConfig
     {
         public List<string> Full {get; set;} = new();
-
         public List<List<string>> Update {get; set;} = new();
     }
 
@@ -107,9 +106,7 @@ namespace Core
         private VersionsConfig? versionsCache;
         private string? latestVersionCache;
 
-        public SophonUrl(
-            Game game,
-            BranchType branch = BranchType.Main)
+        public SophonUrl(Game game, BranchType branch = BranchType.Main)
         {
             this.game = game;
             this.branch = branch;
@@ -188,7 +185,7 @@ namespace Core
                 return latestVersionCache;
             }
 
-            Logger.Debug($"Fetching latest build: {sophonBase}");
+            Logger.Debug($"Fetching latest build...");
 
             var json = await FetchUrl(BuildSophonUrl());
             var obj = JsonSerializer.Deserialize<BuildRoot>(json, JsonOptions);
@@ -211,7 +208,7 @@ namespace Core
                 return versionsCache;
             }
 
-            Logger.Debug($"Fetching versions | Branch: {branch}");
+            Logger.Debug($"Branch: {branch}");
             Logger.Debug($"Package ID: {packageId}");
             Logger.Debug($"Build API: {sophonBase}");
 
@@ -227,9 +224,7 @@ namespace Core
                 throw new Exception("Latest version unavailable.");
             }
 
-            if (!TryParseTag(latest,
-                    out int latestMajor,
-                    out int latestMinor))
+            if (!TryParseTag(latest, out int latestMajor, out int latestMinor))
             {
                 throw new Exception($"Invalid version format: {latest}");
             }
@@ -322,9 +317,7 @@ namespace Core
             return await Http.GetStringAsync(url);
         }
 
-        private static bool TryParseTag(string tag,
-            out int major,
-            out int minor)
+        private static bool TryParseTag(string tag, out int major, out int minor)
         {
             major = 0;
             minor = 0;

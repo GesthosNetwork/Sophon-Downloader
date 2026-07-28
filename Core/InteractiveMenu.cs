@@ -17,10 +17,7 @@ namespace Core
         }
 
         private static VersionsConfig? _versionsCache;
-
-        private static string?
-            _cacheGameKey,
-            _cacheBranch;
+        private static string? _cacheGameKey, _cacheBranch;
 
         public static async Task<int> RunInteractiveMenu()
         {
@@ -28,7 +25,7 @@ namespace Core
             {
                 Console.Clear();
                 Console.WriteLine("""
-                === Select Game ===
+                ========= Select Game =========
 
                 [1] OSREL - Global (Genshin Impact)
                 [2] CNREL - China (YuanShen)
@@ -50,7 +47,7 @@ namespace Core
             {
                 Console.Clear();
                 Console.WriteLine($"""
-                === {GetRegionTitle(region)} Package ===
+                ========= {GetRegionTitle(region)} Package =========
 
                 [1] Full
                 [2] Update
@@ -80,7 +77,7 @@ namespace Core
             while (true)
             {
                 Console.Clear();
-                Console.WriteLine($"=== {FormatMode(mode)} ===\n");
+                Console.WriteLine($"========= {FormatMode(mode)} =========\n");
 
                 for (int i = 0; i < languages.Length; i++)
                     Console.WriteLine($"[{i + 1}] {languages[i]}");
@@ -111,9 +108,7 @@ namespace Core
         }
 
         private static async Task<VersionsConfig> GetCachedVersionsAsync(
-            SophonUrl sophon,
-            Game game,
-            BranchType branch)
+            SophonUrl sophon, Game game, BranchType branch)
         {
             string gameKey = $"{game.Type}_{game.Region}_{game.GameId}";
             string branchKey = branch.ToString();
@@ -160,7 +155,7 @@ namespace Core
             while (true)
             {
                 Console.Clear();
-                Console.WriteLine($"=== {FormatMode(mode)} Download: {lang} ===\n");
+                Console.WriteLine($"====== {FormatMode(mode)} Download: {lang} ======\n");
 
                 for (int i = 0; i < versionsList.Length; i++)
                 {
