@@ -9,9 +9,9 @@ namespace Core
         static Program()
         {
             var version = Assembly
-                    .GetExecutingAssembly()
-                    .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
-                    .InformationalVersion
+                .GetExecutingAssembly()
+                .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
+                .InformationalVersion
                 ?? "unknown";
 
             Console.Title = $"HK4E Sophon Downloader v{version}";
@@ -20,9 +20,9 @@ namespace Core
         public static async Task<int> Main()
         {
             Utils.CenterConsole();
-            AppConfig.Load();
-
-            return await InteractiveMenu.RunInteractiveMenu();
+            Utils.SetQuickEdit(true);
+            Config.Load();
+            return await Menu.RunMenu();
         }
     }
 }

@@ -12,7 +12,6 @@ namespace Core
 
         public static LogLevel MinimumLevel {get; set;} = LogLevel.Info;
         private static readonly object SyncObject = new();
-
         private static readonly Dictionary<LogLevel, (string Tag, ConsoleColor Color)> LogInfo = new()
         {
             [LogLevel.Debug] = ("DEBUG", ConsoleColor.DarkGray),
@@ -21,13 +20,12 @@ namespace Core
             [LogLevel.Error] = ("ERROR", ConsoleColor.Red)
         };
 
+        private static string? _statusText;
+        private static string? _progressText;
         private static int _progressLength;
-        private static int _lineLength;
         private static int _statusLength;
         private static bool _progressVisible;
-        private static bool _lineVisible;
         private static bool _statusVisible;
-
         public static void SetLevel(string level)
         {
             MinimumLevel = level.ToUpperInvariant() switch
@@ -71,11 +69,11 @@ namespace Core
                     Console.WriteLine(text);
                     return;
                 }
-
-                Clear(ref _statusVisible, _statusLength);
-                Console.WriteLine(text);
+                HideBottom();
+                _statusText = text;
                 _statusLength = text.Length;
                 _statusVisible = true;
+                ShowBottom();
             }
         }
 
@@ -83,7 +81,12 @@ namespace Core
         {
             lock (SyncObject)
             {
-                Clear(ref _statusVisible, _statusLength);
+                if (Console.IsOutputRedirected)
+                    return;
+                HideBottom();
+                _statusVisible = false;
+                _statusText = null;
+                ShowBottom();
             }
         }
 
@@ -96,12 +99,11 @@ namespace Core
                     Console.WriteLine(text);
                     return;
                 }
-
-                Clear(ref _progressVisible, _progressLength);
-                Console.Write(text);
-
+                HideBottom();
+                _progressText = text;
                 _progressLength = text.Length;
                 _progressVisible = true;
+                ShowBottom();
             }
         }
 
@@ -109,9 +111,26 @@ namespace Core
         {
             lock (SyncObject)
             {
-                Clear(ref _lineVisible, _lineLength);
-                Clear(ref _progressVisible, _progressLength);
-                Clear(ref _statusVisible, _statusLength);
+                if (Console.IsOutputRedirected)
+                    return;
+                HideBottom();
+                _progressVisible = false;
+                _progressText = null;
+                ShowBottom();
+            }
+        }
+
+        public static void ClearAll()
+        {
+            lock (SyncObject)
+            {
+                if (Console.IsOutputRedirected)
+                    return;
+                HideBottom();
+                _progressVisible = false;
+                _statusVisible = false;
+                _progressText = null;
+                _statusText = null;
             }
         }
 
@@ -119,13 +138,12 @@ namespace Core
         {
             if (!Enabled(level))
                 return;
-
             var info = LogInfo[level];
             lock (SyncObject)
             {
-                Clear(ref _lineVisible, _lineLength);
-                Clear(ref _progressVisible, _progressLength);
+                HideBottom();
                 WriteFormatted(info.Tag, info.Color, message, args);
+                ShowBottom();
             }
         }
 
@@ -133,7 +151,6 @@ namespace Core
         {
             if (!Enabled(level))
                 return;
-
             var info = LogInfo[level];
             lock (SyncObject)
             {
@@ -142,17 +159,9 @@ namespace Core
                     WriteFormatted(info.Tag, info.Color, message, args);
                     return;
                 }
-
-                string timestamp = $"[{DateTime.Now:HH:mm:ss}]";
-                string content = Format(message, args);
-                string text = $"{timestamp}[{info.Tag}] {content}";
-
-                ClearOutput(Math.Max(_lineLength, text.Length));
-                WriteTag(timestamp, info.Tag, info.Color);
-                Console.Write(content);
-
-                _lineLength = text.Length;
-                _lineVisible = true;
+                HideBottom();
+                WriteFormatted(info.Tag, info.Color, message, args);
+                ShowBottom();
             }
         }
 
@@ -185,19 +194,52 @@ namespace Core
             if (args?.Length > 0)
                 try { return string.Format(message, args); }
                 catch {}
-
             return args?.Length > 0
                 ? $"{message} | {string.Join(", ", args)}"
                 : message;
         }
 
-        private static void Clear(ref bool visible, int length)
+        private static void HideBottom()
         {
-            if (!visible || Console.IsOutputRedirected)
+            if (Console.IsOutputRedirected)
                 return;
+            if (_progressVisible)
+            {
+                ClearOutput(_progressLength);
+                if (_statusVisible)
+                {
+                    try
+                    {
+                        int top = Math.Max(0, Console.CursorTop - 1);
+                        Console.SetCursorPosition(0, top);
+                    }
+                    catch { return; }
+                    ClearOutput(_statusLength);
+                }
+            }
+            else if (_statusVisible)
+            {
+                ClearOutput(_statusLength);
+            }
+        }
 
-            ClearOutput(length);
-            visible = false;
+        private static void ShowBottom()
+        {
+            if (Console.IsOutputRedirected)
+                return;
+            if (_statusVisible && _statusText != null)
+            {
+                Console.Write(_statusText);
+                if (_progressVisible && _progressText != null)
+                {
+                    Console.WriteLine();
+                    Console.Write(_progressText);
+                }
+            }
+            else if (_progressVisible && _progressText != null)
+            {
+                Console.Write(_progressText);
+            }
         }
 
         private static void ClearOutput(int length)

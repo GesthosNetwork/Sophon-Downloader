@@ -78,7 +78,7 @@ namespace Core
         Main, PreDownload
     }
 
-    public class SophonUrl
+    public class Sophon
     {
         private static readonly HttpClient Http = new()
         {
@@ -106,7 +106,7 @@ namespace Core
         private VersionsConfig? versionsCache;
         private string? latestVersionCache;
 
-        public SophonUrl(Game game, BranchType branch = BranchType.Main)
+        public Sophon(Game game, BranchType branch = BranchType.Main)
         {
             this.game = game;
             this.branch = branch;
@@ -187,7 +187,7 @@ namespace Core
 
             Logger.Debug($"Fetching latest build...");
 
-            var json = await FetchUrl(BuildSophonUrl());
+            var json = await FetchUrl(BuildSophon());
             var obj = JsonSerializer.Deserialize<BuildRoot>(json, JsonOptions);
 
             if (obj?.retcode != 0 || string.IsNullOrWhiteSpace(obj.data?.tag))
@@ -214,7 +214,7 @@ namespace Core
 
             if (branch == BranchType.PreDownload)
             {
-                throw new Exception("Version list is not available for pre-download branch.");
+                throw new Exception("Version list is not available for predownload branch.");
             }
 
             var latest = await GetLatestVersion();
@@ -230,8 +230,10 @@ namespace Core
             }
 
             var versions = new List<string>();
+            const int minMajor = 4;
+            const int minMinor = 2;
 
-            for (int major = latestMajor; major >= 1; major--)
+            for (int major = latestMajor; major >= minMajor; major--)
             {
                 int startMinor = major == latestMajor
                     ? latestMinor
@@ -239,7 +241,12 @@ namespace Core
 
                 for (int minor = startMinor; minor >= 0; minor--)
                 {
-                    string tag =$"{major}.{minor}.0";
+                    if (major == minMajor && minor < minMinor)
+                    {
+                        break;
+                    }
+
+                    string tag = $"{major}.{minor}.0";
 
                     if (await IsValidBuildTagAsync(tag))
                     {
@@ -280,10 +287,10 @@ namespace Core
                     : version;
             }
 
-            return BuildSophonUrl(tag);
+            return BuildSophon(tag);
         }
 
-        private string BuildSophonUrl(
+        private string BuildSophon(
             string? tag = null)
         {
             var uri = new UriBuilder(sophonBase);
@@ -305,7 +312,7 @@ namespace Core
 
         private async Task<bool> IsValidBuildTagAsync(string tag)
         {
-            var json = await FetchUrl(BuildSophonUrl(tag));
+            var json = await FetchUrl(BuildSophon(tag));
             var obj = JsonSerializer.Deserialize<BuildRoot>(json, JsonOptions);
 
             return obj?.retcode == 0

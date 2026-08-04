@@ -4,24 +4,29 @@
     <AssemblyName>Sophon.Downloader</AssemblyName>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
-    <PlatformTarget>x64</PlatformTarget>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Version>2.1.4</Version>
+    <Version>2.1.5</Version>
 	<Copyright>GesthosNetwork © 2026 All rights reserved.</Copyright>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
     <PublishTrimmed>false</PublishTrimmed>
     <PublishDir>..\bin\</PublishDir>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Mono.Options" Version="6.12.0.148" />
+    <PackageReference Include="Mono.Options" Version="*" />
+    <PackageReference Include="Google.Protobuf" Version="*" />
+    <PackageReference Include="Hi3Helper.ZstdNet" Version="*" />
+    <PackageReference Include="SharpHDiffPatch.Core" Version="*" />
+    <PackageReference Include="System.IO.Hashing" Version="*" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Sophon\Sophon.csproj" />
+    <Reference Include="Sophon">
+        <HintPath>..\Sophon\Sophon.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
   <Target Name="PostPublishCleanup" AfterTargets="Publish">
@@ -30,7 +35,7 @@
     </ItemGroup>
 
     <Delete Files="@(FilesToDelete)" />
-    <RemoveDir Directories="$(ProjectDir)bin;$(ProjectDir)obj;$(ProjectDir)..\Sophon\bin;$(ProjectDir)..\Sophon\obj" />
+    <RemoveDir Directories="$(ProjectDir)bin;$(ProjectDir)obj" />
   </Target>
 
 </Project>

@@ -5,22 +5,18 @@ namespace Core
 {
     internal static class Utils
     {
-        private static readonly string[] SizeSuffixes =
-        {
-            "B", "KB", "MB", "GB"
-        };
+        private static readonly string[] SizeSuffixes = {"B", "KB", "MB", "GB"};
 
         public static string FormatSize(double value, int decimalPlaces = 2)
         {
             if (value <= 0)
+            {
                 return value < 0
                     ? "-" + FormatSize(-value, decimalPlaces)
                     : "0 B";
+            }
 
-            int mag = Math.Min(
-                SizeSuffixes.Length - 1,
-                (int)Math.Log(value, 1024));
-
+            int mag = Math.Min(SizeSuffixes.Length - 1, (int)Math.Log(value, 1024));
             return $"{Math.Round(value / Math.Pow(1024, mag), decimalPlaces)} {SizeSuffixes[mag]}";
         }
 
@@ -30,8 +26,8 @@ namespace Core
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
-        [DllImport("user32.dll", SetLastError=true)]
-        private static extern bool MoveWindow(IntPtr h,int x,int y,int w,int hgt,bool r);
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
 
         [DllImport("user32.dll")]
         private static extern int GetSystemMetrics(int nIndex);
@@ -51,10 +47,7 @@ namespace Core
 
         private struct RECT
         {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
+            public int Left, Top, Right, Bottom;
         }
 
         public static void CenterConsole()
@@ -67,25 +60,33 @@ namespace Core
             int width = rect.Right - rect.Left;
             int height = rect.Bottom - rect.Top;
 
-            MoveWindow(
-                hwnd,
-                (GetSystemMetrics(0) - width) / 2,
-                (GetSystemMetrics(1) - height) / 2,
-                width, height, true);
+            MoveWindow(hwnd, (GetSystemMetrics(0) - width) / 2, (GetSystemMetrics(1) - height) / 2, width, height, true);
         }
 
-        public static void DisableQuickEdit()
+        public static void SetQuickEdit(bool enabled)
         {
             try
             {
                 IntPtr handle = GetStdHandle(STD_INPUT_HANDLE);
 
-                if (handle != IntPtr.Zero &&
-                    GetConsoleMode(handle, out uint mode))
+                if (handle == IntPtr.Zero ||
+                    !GetConsoleMode(handle, out uint mode))
                 {
-                    SetConsoleMode(handle,
-                    (mode & ~ENABLE_QUICK_EDIT_MODE) | ENABLE_EXTENDED_FLAGS);
+                    return;
                 }
+
+                mode |= ENABLE_EXTENDED_FLAGS;
+
+                if (enabled)
+                {
+                    mode |= ENABLE_QUICK_EDIT_MODE;
+                }
+                else
+                {
+                    mode &= ~ENABLE_QUICK_EDIT_MODE;
+                }
+
+                SetConsoleMode(handle, mode);
             }
             catch {}
         }

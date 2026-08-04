@@ -37,11 +37,14 @@ namespace Core
                     (!string.IsNullOrEmpty(newManifestUrl) &&
                      (manifestTo?.ManifestInfo == null || manifestTo?.ChunksInfo == null)))
                 {
+                    Logger.Error("Manifest info incomplete (from={0}, to={1}). URL may be invalid or expired.",
+                        manifestFrom?.ManifestInfo != null, manifestTo?.ManifestInfo != null);
                     return Tuple.Create<List<SophonAsset>?, long>(null, 0);
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                Logger.Error("Failed to load manifest info: {0}", ex.Message);
                 return Tuple.Create<List<SophonAsset>?, long>(null, 0);
             }
 
@@ -64,8 +67,9 @@ namespace Core
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
+                Logger.Error("Failed to enumerate assets: {0}", ex.Message);
                 return Tuple.Create<List<SophonAsset>?, long>(null, 0);
             }
 
