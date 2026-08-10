@@ -35,7 +35,7 @@
     </ItemGroup>
 
     <Delete Files="@(FilesToDelete)" />
-    <RemoveDir Directories="$(ProjectDir)bin;$(ProjectDir)obj;$(ProjectDir)..\Legacy\bin;$(ProjectDir)..\Legacy\obj" />
+    <RemoveDir Directories="$(ProjectDir)bin;$(ProjectDir)obj" />
   </Target>
 
 </Project>
