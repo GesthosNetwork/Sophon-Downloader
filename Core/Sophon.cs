@@ -123,21 +123,21 @@ namespace Core
         public void UpdateRegion(Region region)
         {
             (apiBase, sophonBase) = region switch
-                {
-                    Region.OSREL =>
-                    (
-                        "https://sg-hyp-api.hoyoverse.com/hyp/hyp-connect/api/getGameBranches",
-                        "https://sg-public-api.hoyoverse.com/downloader/sophon_chunk/api/getBuild"
-                    ),
+            {
+                Region.OSREL =>
+                (
+                    "https://sg-hyp-api.hoyoverse.com/hyp/hyp-connect/api/getGameBranches",
+                    "https://sg-public-api.hoyoverse.com/downloader/sophon_chunk/api/getBuild"
+                ),
 
-                    Region.CNREL =>
-                    (
-                        "https://hyp-api.mihoyo.com/hyp/hyp-connect/api/getGameBranches",
-                        "https://api-takumi.mihoyo.com/downloader/sophon_chunk/api/getBuild"
-                    ),
+                Region.CNREL =>
+                (
+                    "https://hyp-api.mihoyo.com/hyp/hyp-connect/api/getGameBranches",
+                    "https://api-takumi.mihoyo.com/downloader/sophon_chunk/api/getBuild"
+                ),
 
-                    _ => throw new ArgumentOutOfRangeException(nameof(region))
-                };
+                _ => throw new ArgumentOutOfRangeException(nameof(region))
+            };
         }
 
         public async Task<int> GetBuildData()
@@ -185,19 +185,15 @@ namespace Core
                 return latestVersionCache;
             }
 
-            Logger.Debug($"Fetching latest build...");
-
             var json = await FetchUrl(BuildSophon());
             var obj = JsonSerializer.Deserialize<BuildRoot>(json, JsonOptions);
 
             if (obj?.retcode != 0 || string.IsNullOrWhiteSpace(obj.data?.tag))
             {
-                Logger.Debug("Latest version not found.");
                 return null;
             }
 
             latestVersionCache = obj.data.tag;
-            Logger.Debug($"Latest version: {latestVersionCache}");
             return latestVersionCache;
         }
 
@@ -264,10 +260,10 @@ namespace Core
             for (int i = 0; i < result.Full.Count - 1; i++)
             {
                 result.Update.Add(new List<string>
-                    {
-                        result.Full[i],
-                        result.Full[i + 1]
-                    });
+                {
+                    result.Full[i],
+                    result.Full[i + 1]
+                });
             }
 
             Logger.Debug($"Version count: {result.Full.Count}");
@@ -277,6 +273,11 @@ namespace Core
 
         public string GetBuildUrl(string version, bool isUpdate = false)
         {
+            if (branch == BranchType.PreDownload)
+            {
+                return BuildSophon();
+            }
+
             string? tag = null;
 
             if (!string.Equals(version, "Latest", StringComparison.OrdinalIgnoreCase)
@@ -339,7 +340,7 @@ namespace Core
                 && int.TryParse(split[1], out minor);
         }
 
-        private static BranchesMain? GetBranch( BranchesRoot obj, BranchType type)
+        private static BranchesMain? GetBranch(BranchesRoot obj, BranchType type)
         {
             var branch = obj.data?.game_branches?.FirstOrDefault();
 

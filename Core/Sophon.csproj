@@ -5,8 +5,8 @@
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <Version>2.1.5</Version>
-	<Copyright>GesthosNetwork © 2026 All rights reserved.</Copyright>
+    <Version>2.1.6</Version>
+    <Copyright>GesthosNetwork © 2026 All rights reserved.</Copyright>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PublishSingleFile>true</PublishSingleFile>
@@ -25,7 +25,7 @@
 
   <ItemGroup>
     <Reference Include="Sophon">
-        <HintPath>..\Sophon\Sophon.dll</HintPath>
+      <HintPath>..\Sophon\Sophon.dll</HintPath>
     </Reference>
   </ItemGroup>
 
@@ -35,7 +35,7 @@
     </ItemGroup>
 
     <Delete Files="@(FilesToDelete)" />
-    <RemoveDir Directories="$(ProjectDir)bin;$(ProjectDir)obj" />
+    <RemoveDir Directories="$(ProjectDir)bin;$(ProjectDir)obj;$(ProjectDir)..\Legacy\bin;$(ProjectDir)..\Legacy\obj" />
   </Target>
 
 </Project>

@@ -42,7 +42,9 @@ namespace Core
                     return;
                 }
 
-                to = a[4]; outDir = a[5];
+                to = a[4];
+                outDir = a[5];
+
                 if (a.Length > 6)
                     onlyAsset = a[6];
             }
@@ -60,6 +62,7 @@ namespace Core
             else
             {
                 outDir = a[4];
+
                 if (a.Length > 5)
                     onlyAsset = a[5];
             }
@@ -109,17 +112,45 @@ namespace Core
                 return;
             }
 
+            if (pre)
+            {
+                try
+                {
+                    string? preVersion = await sophon.GetLatestVersion();
+
+                    if (string.IsNullOrWhiteSpace(preVersion))
+                    {
+                        Logger.Error("Unable to determine PreDownload version.");
+                        return;
+                    }
+
+                    Logger.Info("PreDownload version: {0}", preVersion);
+                }
+                catch (HttpRequestException)
+                {
+                    Logger.Error("Unable to fetch PreDownload version.");
+                    Console.ReadKey();
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error("Unexpected error while fetching PreDownload version: {0}", ex.Message);
+                    Console.ReadKey();
+                    return;
+                }
+            }
+
             string prev = sophon.GetBuildUrl(from, false);
             string next = upd ? sophon.GetBuildUrl(to, true) : "";
 
             if (upd)
             {
-                Logger.Debug("Previous manifest: {0}", prev);
-                Logger.Debug("New manifest: {0}", next);
+                Logger.Info("Previous manifest: {0}", prev);
+                Logger.Info("New manifest: {0}", next);
             }
             else
             {
-                Logger.Debug("Manifest: {0}", prev);
+                Logger.Info("Manifest: {0}", prev);
             }
 
             if (!string.IsNullOrWhiteSpace(onlyAsset))
@@ -159,6 +190,7 @@ namespace Core
                     samples.Enqueue((now, totalBytes));
 
                     long threshold = now - (long)(WindowSeconds * Stopwatch.Frequency);
+
                     while (samples.Count > 1
                         && samples.Peek().Timestamp < threshold)
                     {
@@ -170,6 +202,7 @@ namespace Core
 
                     var first = samples.Peek();
                     var last = samples.Last();
+
                     double seconds = (last.Timestamp - first.Timestamp) / (double)Stopwatch.Frequency;
 
                     if (seconds <= 0)
@@ -213,6 +246,7 @@ namespace Core
                 e.Cancel = true;
                 TryCancelDownload();
             };
+
             Console.CancelKeyPress += onCancel;
 
             HttpClient httpClient = CreateClient();
@@ -238,14 +272,11 @@ namespace Core
                             checkCts.CancelAfter(TimeSpan.FromSeconds(3));
 
                             using var req = new HttpRequestMessage(HttpMethod.Get, url);
-                            using var res = await httpClient.SendAsync(
-                                req,
-                                HttpCompletionOption.ResponseHeadersRead,
-                                checkCts.Token
-                            );
+                            using var res = await httpClient.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, checkCts.Token);
 
                             if (res.IsSuccessStatusCode)
                                 return true;
+
                             if ((int)res.StatusCode >= 200 && (int)res.StatusCode < 500)
                                 return true;
                         }
@@ -281,13 +312,7 @@ namespace Core
 
                     Logger.Info("Fetching assets...");
 
-                    var res = await Assets.GetAssetsFromManifests(
-                        httpClient,
-                        matchingField,
-                        prevManifestUrl,
-                        newManifestUrl,
-                        linked
-                    );
+                    var res = await Assets.GetAssetsFromManifests(httpClient, matchingField, prevManifestUrl, newManifestUrl, linked);
 
                     if (res == null || res.Item1 == null)
                     {
@@ -297,13 +322,7 @@ namespace Core
                         httpClient = CreateClient();
                         staleClient.Dispose();
 
-                        res = await Assets.GetAssetsFromManifests(
-                            httpClient,
-                            matchingField,
-                            prevManifestUrl,
-                            newManifestUrl,
-                            linked
-                        );
+                        res = await Assets.GetAssetsFromManifests(httpClient, matchingField, prevManifestUrl, newManifestUrl, linked);
 
                         if (res == null || res.Item1 == null)
                             return Err("Failed to fetch manifest.");
@@ -336,14 +355,18 @@ namespace Core
                     long currentRead = 0;
 
                     bool parallel = Config.DownloadMode.Equals("Parallel", OI);
+
                     int assetSlots = parallel
                         ? Math.Max(1, Math.Min(Config.Threads, Config.MaxHttpHandle))
                         : 1;
+
                     int maxHttpHandle = Math.Max(1, Config.MaxHttpHandle);
                     int maxChunkBudgetPerAsset = Math.Max(1, maxHttpHandle / assetSlots);
                     long totalSize = assets.Sum(x => x.AssetSize);
 
-                    var resumingAssets = new ConcurrentDictionary<string, byte>(StringComparer.OrdinalIgnoreCase);
+                    var resumingAssets = new ConcurrentDictionary<string, byte>(
+                        StringComparer.OrdinalIgnoreCase
+                    );
 
                     if (Directory.Exists(outputDir))
                     {
@@ -370,26 +393,33 @@ namespace Core
                     if (first)
                     {
                         bool needConfirm = !singleMode || !selectedFromList;
+
                         if (needConfirm)
                         {
                             Logger.Info("Found {0} asset(s)", total);
                             Logger.Info("Total download size is {0}", Utils.FormatSize(totalSize));
-                            Logger.Info("Download mode: {0}", parallel ? $"Parallel ({assetSlots} threads)" : "Sequential");
+                            Logger.Info("Download mode: {0}", parallel
+                                ? $"Parallel ({assetSlots} threads)"
+                                : "Sequential"
+                            );
 
                             if (isResuming)
-                            Logger.Info("Detected an interrupted download, resuming...");
+                                Logger.Info("Detected an interrupted download, resuming...");
                         }
 
                         if (singleMode && selectedFromList)
                         {
                             Directory.CreateDirectory(outputDir);
                             first = false;
+
                             Logger.SetStatus("[P] Pause    [R] Resume    [C] Cancel");
                             StartControlListener();
                         }
                         else
                         {
-                            bool proceed = ConfirmPrompt?.Invoke(total, totalSize, isResuming) ?? true;
+                            bool proceed = ConfirmPrompt?.Invoke(total, totalSize, isResuming)
+                                ?? true;
+
                             if (!proceed)
                             {
                                 TryCancelDownload();
@@ -399,6 +429,7 @@ namespace Core
 
                             Directory.CreateDirectory(outputDir);
                             first = false;
+
                             Logger.SetStatus("[P] Pause    [R] Resume    [C] Cancel");
                             StartControlListener();
                         }
@@ -414,18 +445,21 @@ namespace Core
                     void ReportInterruption(string message)
                     {
                         if (Interlocked.CompareExchange(ref restartFetch, 1, 0) == 0)
-                        Logger.Warning(message);
+                            Logger.Warning(message);
                     }
 
                     void Render(bool force = false)
                     {
                         long nowCheck = Stopwatch.GetTimestamp();
+
                         if (!force)
                         {
                             long observed = Volatile.Read(ref lastRenderTicks);
+
                             if (observed != 0)
                             {
                                 long elapsedMs = (nowCheck - observed) * 1000 / Stopwatch.Frequency;
+
                                 if (elapsedMs < ProgressUpdateIntervalMs)
                                     return;
                             }
@@ -438,9 +472,11 @@ namespace Core
                         {
                             long now = Stopwatch.GetTimestamp();
                             long previous = Volatile.Read(ref lastRenderTicks);
+
                             if (!force && previous != 0)
                             {
                                 long elapsedMs = (now - previous) * 1000 / Stopwatch.Frequency;
+
                                 if (elapsedMs < ProgressUpdateIntervalMs)
                                     return;
                             }
@@ -448,6 +484,7 @@ namespace Core
                             Volatile.Write(ref lastRenderTicks, now);
 
                             long read = Math.Max(0, Interlocked.Read(ref currentRead));
+
                             int d = Volatile.Read(ref done);
                             int dn = Volatile.Read(ref downloading);
                             double speedBps = speedTracker.GetSpeed(read);
@@ -459,7 +496,10 @@ namespace Core
                                 : $"{label} | {d}/{total} files ({speed})"
                             );
                         }
-                        finally { Volatile.Write(ref rendering, 0); }
+                        finally
+                        {
+                            Volatile.Write(ref rendering, 0);
+                        }
                     }
 
                     async Task DownloadAsset(SophonAsset asset)
@@ -468,6 +508,7 @@ namespace Core
                         WaitIfPaused(opToken);
 
                         string path = Path.Combine(outputDir, asset.AssetName);
+
                         if (IsCompleteFile(path, asset.AssetSize))
                         {
                             MarkAssetSettled(asset);
@@ -477,6 +518,7 @@ namespace Core
                         }
 
                         bool counted = false;
+
                         if (parallel)
                         {
                             Interlocked.Increment(ref downloading);
@@ -510,8 +552,10 @@ namespace Core
                                 writeInfoDelegate: read =>
                                 {
                                     WaitIfPaused(opToken);
+
                                     if (read > 0)
                                         Interlocked.Add(ref currentRead, read);
+
                                     Render();
                                 },
                                 downloadInfoDelegate: null,
@@ -519,6 +563,7 @@ namespace Core
                             );
 
                             string temp = path + "_tempUpdate";
+
                             if (File.Exists(temp))
                                 MoveFileWithRetry(temp, path);
 
@@ -568,6 +613,7 @@ namespace Core
                         {
                             if (opToken.IsCancellationRequested)
                                 break;
+
                             if (!queue.TryDequeue(out var asset))
                                 break;
 
@@ -623,7 +669,9 @@ namespace Core
                             Logger.Error("Unexpected download error: {0}", ex.Message);
                     }
 
-                    if (cancelled != 0 || _downloadCancel?.IsCancellationRequested == true || linked.Token.IsCancellationRequested)
+                    if (cancelled != 0
+                        || _downloadCancel?.IsCancellationRequested == true
+                        || linked.Token.IsCancellationRequested)
                     {
                         Logger.ClearAll();
                         return 0;
@@ -691,7 +739,10 @@ namespace Core
             };
         }
 
-        static int GetChunkThreadsForAsset(long assetSize, int configuredMax, int globalBudgetPerAsset)
+        static int GetChunkThreadsForAsset(
+            long assetSize,
+            int configuredMax,
+            int globalBudgetPerAsset)
         {
             int preferred = assetSize switch
             {
@@ -705,9 +756,15 @@ namespace Core
             return Math.Clamp(preferred, 1, cap);
         }
 
-        static (List<SophonAsset> Assets, bool SelectedFromList, bool Cancelled) SelectAssetsByQuery(List<SophonAsset> assets, string query)
+        static (
+            List<SophonAsset> Assets,
+            bool SelectedFromList,
+            bool Cancelled) SelectAssetsByQuery(
+                List<SophonAsset> assets,
+                string query)
         {
             query = Download.NormalizeAssetQuery(query) ?? "";
+
             if (string.IsNullOrWhiteSpace(query))
                 return (new List<SophonAsset>(), false, false);
 
@@ -722,19 +779,24 @@ namespace Core
                 return (exact, false, false);
 
             var matches = SearchAssets(assets, query).ToList();
+
             if (matches.Count == 0)
                 return (new List<SophonAsset>(), false, false);
+
             if (matches.Count == 1)
                 return (matches, false, false);
 
             int index = AssetPicker != null ? AssetPicker(matches) : -1;
+
             if (index < 0)
                 return (new List<SophonAsset>(), false, true);
 
             return (new List<SophonAsset> { matches[index] }, true, false);
         }
 
-        static IEnumerable<SophonAsset> SearchAssets(List<SophonAsset> assets, string query)
+        static IEnumerable<SophonAsset> SearchAssets(
+            List<SophonAsset> assets,
+            string query)
         {
             if (string.IsNullOrWhiteSpace(query))
                 return Enumerable.Empty<SophonAsset>();
@@ -744,21 +806,35 @@ namespace Core
 
             if (hasWildcard)
             {
-                string regex = "^" + Regex.Escape(query).Replace("\\*", ".*").Replace("\\?", ".") + "$";
-                var rx = new Regex(regex, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+                string regex = "^"
+                    + Regex.Escape(query)
+                        .Replace("\\*", ".*")
+                        .Replace("\\?", ".")
+                    + "$";
+
+                var rx = new Regex(
+                    regex,
+                    RegexOptions.IgnoreCase | RegexOptions.CultureInvariant
+                );
 
                 return assets.Where(x =>
                 {
-                    string name = Download.NormalizeAssetQuery(x.AssetName) ?? string.Empty;
+                    string name = Download.NormalizeAssetQuery(x.AssetName)
+                        ?? string.Empty;
+
                     string file = Path.GetFileName(name);
+
                     return rx.IsMatch(name) || rx.IsMatch(file);
                 });
             }
 
             return assets.Where(x =>
             {
-                string name = Download.NormalizeAssetQuery(x.AssetName) ?? string.Empty;
+                string name = Download.NormalizeAssetQuery(x.AssetName)
+                    ?? string.Empty;
+
                 string file = Path.GetFileName(name);
+
                 return name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
                        file.Contains(query, StringComparison.OrdinalIgnoreCase);
             });
@@ -823,6 +899,7 @@ namespace Core
             {
                 if (!File.Exists(path))
                     return false;
+
                 if (expectedSize <= 0)
                     return true;
 
@@ -831,7 +908,11 @@ namespace Core
             catch { return false; }
         }
 
-        static void MoveFileWithRetry(string source, string destination, int retries = 5, int delayMs = 200)
+        static void MoveFileWithRetry(
+            string source,
+            string destination,
+            int retries = 5,
+            int delayMs = 200)
         {
             Exception? last = null;
 
@@ -842,14 +923,19 @@ namespace Core
                     File.Move(source, destination, true);
                     return;
                 }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                catch (Exception ex) when (
+                    ex is IOException ||
+                    ex is UnauthorizedAccessException)
                 {
                     last = ex;
                     Thread.Sleep(delayMs);
                 }
             }
 
-            throw new IOException($"Failed to move '{source}' to '{destination}'.", last);
+            throw new IOException(
+                $"Failed to move '{source}' to '{destination}'.",
+                last
+            );
         }
 
         static int Err(string msg)
