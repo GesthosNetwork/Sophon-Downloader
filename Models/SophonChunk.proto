@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+option csharp_namespace = "SophonDownloader";
+
+message SophonChunk {
+    string id = 1;
+    string uncompressed_md5 = 2;
+    int64 offset = 3;
+    int64 compressed_size = 4;
+    int64 uncompressed_size = 5;
+    int64 unknown = 6;
+    string compressed_md5 = 7;
+}
+
+message SophonChunkFile {
+    string file = 1;
+    repeated SophonChunk chunks = 2;
+    bool is_folder = 3;
+    int64 size = 4;
+    string md5 = 5;
+}
+
+message SophonChunkManifest {
+    repeated SophonChunkFile chuncks = 1;
+}
+
+message SophonPatch {
+    string id = 1;
+    string tag = 2;
+    string build_id = 3;
+    int64 patch_file_size = 4;
+    string patch_file_md5 = 5;
+    int64 patch_offset = 6;
+    int64 patch_length = 7;
+    string original_file_name = 8;
+    int64 original_file_size = 9;
+    string original_file_md5 = 10;
+}
+
+message SophonPatchDeleteFile {
+    string file = 1;
+    int64 size = 2;
+    string md5 = 3;
+}
+
+message SophonPatchDeleteFileCollection {
+    repeated SophonPatchDeleteFile delete_files = 1;
+}
+
+message SophonPatchDeleteTag {
+    string tag = 1;
+    SophonPatchDeleteFileCollection delete_collection = 2;
+}
+
+message SophonPatchFile {
+    string file = 1;
+    int64 size = 2;
+    string md5 = 3;
+    repeated SophonPatchInfo patches = 4;
+}
+
+message SophonPatchInfo {
+    string tag = 1;
+    SophonPatch patch = 2;
+}

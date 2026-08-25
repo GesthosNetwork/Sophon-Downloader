@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <AssemblyName>SophonDownloader</AssemblyName>
+    <OutputType>WinExe</OutputType>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <Version>3.0.0</Version>
+    <CurrentYear>$([System.DateTime]::Now.Year)</CurrentYear>
+    <Copyright>Copyright © $(CurrentYear) GesthosNetwork All rights reserved.</Copyright>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <PublishSingleFile>true</PublishSingleFile>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishDir>.\bin\</PublishDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="protobuf-net" Version="*" />
+    <PackageReference Include="protobuf-net.Core" Version="*" />
+    <PackageReference Include="SharpCompress" Version="*" />
+    <PackageReference Include="ZstdSharp.Port" Version="*" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="*" />
+    <PackageReference Include="NLog" Version="*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\*" />
+    <AdditionalFiles Include="Models\*.proto" />
+    <EmbeddedResource Include="NLog.config" />
+  </ItemGroup>
+
+  <Target Name="PostPublishCleanup" AfterTargets="Publish">
+    <ItemGroup>
+      <FilesToDelete Include="$(PublishDir)**\*.pdb" />
+    </ItemGroup>
+    <Delete Files="@(FilesToDelete)" />
+    <RemoveDir Directories="$(ProjectDir)bin\Release;$(ProjectDir)obj" />
+  </Target>
+
+</Project>

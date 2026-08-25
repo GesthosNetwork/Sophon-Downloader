@@ -1,0 +1,125 @@
+<UserControl x:Class="SophonDownloader.LicenseView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel>
+            <TextBlock Text="LICENSE &amp; LEGAL"
+                       Foreground="{DynamicResource AccentBrush}"
+                       FontSize="12"
+                       FontWeight="SemiBold"/>
+
+            <TextBlock Text="Open Source and Third-Party Notices"
+                       Foreground="{DynamicResource PrimaryTextBrush}"
+                       FontSize="32"
+                       FontWeight="SemiBold"
+                       Margin="0,4,0,0"/>
+
+            <TextBlock Text="SophonDownloader is GPL-3.0. Embedded and third-party components remain under their respective licenses."
+                       Foreground="{DynamicResource MutedTextBrush}"
+                       FontSize="11"
+                       TextWrapping="Wrap"
+                       Margin="0,7,0,0"/>
+        </StackPanel>
+
+        <Border Grid.Row="1"
+                Margin="0,24,0,0"
+                Background="{DynamicResource PanelStrongBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="14"
+                Padding="18">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel>
+
+                    <TextBlock Text="SophonDownloader"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               FontSize="20"
+                               FontWeight="SemiBold"/>
+
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,8,0,18">
+                        <Run Text="The source code of SophonDownloader is licensed under the GNU General Public License version 3.0. The full license text is shipped with the source in the LICENSE file."/>
+                    </TextBlock>
+
+                    <TextBlock Text="Third-Party Software"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8"/>
+
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,18">
+                        <Hyperlink NavigateUri="https://github.com/aria2/aria2"
+                                   RequestNavigate="Hyperlink_RequestNavigate">aria2</Hyperlink>
+                        <Run Text=" 1.37.0 — GPL-2.0-or-later. Upstream aria2 component."/>
+                        <LineBreak/>
+
+                        <Hyperlink NavigateUri="https://github.com/protobuf-net/protobuf-net"
+                                   RequestNavigate="Hyperlink_RequestNavigate">protobuf-net</Hyperlink>
+                        <Run Text=" and "/>
+                        <Hyperlink NavigateUri="https://github.com/protobuf-net/protobuf-net"
+                                   RequestNavigate="Hyperlink_RequestNavigate">protobuf-net.Core</Hyperlink>
+                        <Run Text=" — Apache-2.0."/>
+                        <LineBreak/>
+
+                        <Hyperlink NavigateUri="https://github.com/adamhathcock/sharpcompress"
+                                   RequestNavigate="Hyperlink_RequestNavigate">SharpCompress</Hyperlink>
+                        <Run Text=" — MIT."/>
+                        <LineBreak/>
+
+                        <Hyperlink NavigateUri="https://github.com/oleg-st/ZstdSharp"
+                                   RequestNavigate="Hyperlink_RequestNavigate">ZstdSharp.Port</Hyperlink>
+                        <Run Text=" — MIT."/>
+                        <LineBreak/>
+
+                        <Hyperlink NavigateUri="https://github.com/NLog/NLog"
+                                   RequestNavigate="Hyperlink_RequestNavigate">NLog</Hyperlink>
+                        <Run Text=" — BSD-3-Clause."/>
+                        <LineBreak/>
+
+                        <Hyperlink NavigateUri="https://github.com/dotnet/efcore"
+                                   RequestNavigate="Hyperlink_RequestNavigate">Microsoft.Data.Sqlite</Hyperlink>
+                        <Run Text=" — MIT."/>
+                    </TextBlock>
+
+                    <TextBlock Text="Trademarks and Game Content"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8"/>
+
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,18">
+                        <Run Text="SophonDownloader is an independent, unofficial project. It is not affiliated with, endorsed by, sponsored by, or otherwise associated with HoYoverse, miHoYo, Cognosphere, or the operators of the supported games."/>
+                        <LineBreak/>
+                        <Run Text="Game titles, trademarks, logos, characters, artwork, assets, service names, and other proprietary materials remain the property of their respective rights holders. No rights to third-party content are granted by this project."/>
+                    </TextBlock>
+
+                    <TextBlock Text="User Responsibility"
+                               Foreground="{DynamicResource PrimaryTextBrush}"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8"/>
+
+                    <TextBlock Foreground="{DynamicResource SecondaryTextBrush}"
+                               FontSize="11"
+                               TextWrapping="Wrap">
+                        <Run Text="Users are responsible for ensuring that their use of SophonDownloader and any content accessed or obtained through it complies with applicable law, contractual terms, service terms, and the rights of the relevant rights holders."/>
+                    </TextBlock>
+
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
+    </Grid>
+</UserControl>

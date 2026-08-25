@@ -1,0 +1,378 @@
+<UserControl x:Class="SophonDownloader.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+            <Setter Property="Padding" Value="20"/>
+            <Setter Property="Margin" Value="0,0,0,14"/>
+        </Style>
+        <ControlTemplate x:Key="RoundedComboTemplate" TargetType="ComboBox">
+            <Grid>
+                <Border x:Name="ComboBorder"
+                        Background="{DynamicResource InputBrush}"
+                        BorderBrush="{DynamicResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="10,0">
+                    <Grid>
+                        <ContentPresenter Margin="10,0,28,0"
+                                          VerticalAlignment="Center"
+                                          Content="{TemplateBinding SelectionBoxItem}"
+                                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                          ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"/>
+                        <Path HorizontalAlignment="Right"
+                              VerticalAlignment="Center"
+                              Width="8"
+                              Height="5"
+                              Fill="{DynamicResource SecondaryTextBrush}"
+                              Data="M 0 0 L 8 0 L 4 5 Z"/>
+                    </Grid>
+                </Border>
+                <ToggleButton x:Name="DropDownToggle"
+                              Background="Transparent"
+                              BorderThickness="0"
+                              HorizontalAlignment="Stretch"
+                              VerticalAlignment="Stretch"
+                              Focusable="False"
+                              IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}}">
+                    <ToggleButton.Template>
+                        <ControlTemplate TargetType="ToggleButton">
+                            <Border Background="Transparent" CornerRadius="10"/>
+                        </ControlTemplate>
+                    </ToggleButton.Template>
+                </ToggleButton>
+                <Popup IsOpen="{TemplateBinding IsDropDownOpen}"
+                       Placement="Bottom"
+                       AllowsTransparency="True"
+                       Focusable="False"
+                       PopupAnimation="Fade">
+                    <Border Background="{DynamicResource InputBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Padding="4"
+                            Width="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
+                        <ScrollViewer MaxHeight="280">
+                            <ItemsPresenter/>
+                        </ScrollViewer>
+                    </Border>
+                </Popup>
+            </Grid>
+            <ControlTemplate.Triggers>
+                <Trigger SourceName="DropDownToggle" Property="IsMouseOver" Value="True">
+                    <Setter TargetName="ComboBorder" Property="BorderBrush" Value="{DynamicResource PrimaryHoverBrush}"/>
+                    <Setter TargetName="ComboBorder" Property="Background" Value="{DynamicResource SurfaceHoverBrush}"/>
+                </Trigger>
+            </ControlTemplate.Triggers>
+        </ControlTemplate>
+        <Style x:Key="RoundedComboStyle" TargetType="ComboBox">
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Template" Value="{StaticResource RoundedComboTemplate}"/>
+        </Style>
+        <Style x:Key="InputStyle" TargetType="TextBox">
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="MinWidth" Value="220"/>
+            <Setter Property="Padding" Value="10,0"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource InputBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="InputBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10"
+                                Padding="{TemplateBinding Padding}">
+                            <ScrollViewer x:Name="PART_ContentHost"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="InputBorder" Property="Background" Value="{DynamicResource SurfaceHoverBrush}"/>
+                                <Setter TargetName="InputBorder" Property="BorderBrush" Value="{DynamicResource PrimaryHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="InputBorder" Property="BorderBrush" Value="{DynamicResource PrimaryHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="InputBorder" Property="Opacity" Value=".45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource InputBrush}"/>
+            <Setter Property="Padding" Value="10,8"/>
+        </Style>
+    </UserControl.Resources>
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel>
+            <TextBlock Text="PREFERENCE"
+                       Foreground="{DynamicResource TextBrush}"
+                       FontSize="25"
+                       FontWeight="SemiBold"/>
+            <TextBlock Text="Application appearance and network preferences."
+                       Foreground="{DynamicResource MutedBrush}"
+                       FontSize="12"
+                       Margin="0,6,0,24"/>
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Text="Appearance"
+                               Foreground="{DynamicResource TextBrush}"
+                               FontSize="16"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="Launcher-style rounded selectors for theme palette and light/dark mode."
+                               Foreground="{DynamicResource MutedBrush}"
+                               FontSize="11"
+                               Margin="0,4,0,16"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="180"/>
+                            <ColumnDefinition Width="170"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Theme" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+                            <TextBlock Text="Default, Red, Blue, Green or Purple.
+"
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"/>
+                        </StackPanel>
+                        <ComboBox x:Name="ThemePaletteComboBox" Grid.Column="1" Style="{StaticResource RoundedComboStyle}" SelectionChanged="ThemePaletteComboBox_SelectionChanged">
+                            <ComboBoxItem Content="Default"/>
+                            <ComboBoxItem Content="Red"/>
+                            <ComboBoxItem Content="Blue"/>
+                            <ComboBoxItem Content="Green"/>
+                            <ComboBoxItem Content="Purple"/>
+                        </ComboBox>
+                        <ComboBox x:Name="ThemeModeComboBox" Grid.Column="2" Margin="8,0,0,0" Style="{StaticResource RoundedComboStyle}" SelectionChanged="ThemeModeComboBox_SelectionChanged">
+                            <ComboBoxItem Content="Light"/>
+                            <ComboBoxItem Content="Dark"/>
+                        </ComboBox>
+                    </Grid>
+                    <Grid Margin="0,12,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="350"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Font" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+                            <TextBlock Text="Choose a font installed on this system." Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0"/>
+                        </StackPanel>
+                        <ComboBox x:Name="FontFamilyComboBox" Grid.Column="1" Style="{StaticResource RoundedComboStyle}" SelectionChanged="FontFamilyComboBox_SelectionChanged">
+                            <ComboBox.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding Source}" FontFamily="{Binding}"/>
+                                </DataTemplate>
+                            </ComboBox.ItemTemplate>
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+                    <TextBlock Text="Network / Proxy"
+                               Foreground="{DynamicResource TextBrush}"
+                               FontSize="16"
+                               FontWeight="SemiBold"/>
+                    <TextBlock Text="Connection, proxy, bandwidth and downloader behavior."
+                               Foreground="{DynamicResource MutedBrush}"
+                               FontSize="11"
+                               Margin="0,4,0,18"/>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Download engine" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+                            <TextBlock Text="Aria2c is faster for multi-connection downloads; turn it off to use the built-in HTTP engine."
+                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <CheckBox x:Name="UseAria2cCheckBox"
+                                  Grid.Column="1"
+                                  IsChecked="True"
+                                  HorizontalAlignment="Left"
+                                  VerticalAlignment="Center"
+                                  Content="Use Aria2c"
+                                  Foreground="{DynamicResource TextBrush}"
+                                  Checked="UseAria2cCheckBox_Changed"
+                                  Unchecked="UseAria2cCheckBox_Changed"/>
+                    </Grid>
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Download mode" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+                            <TextBlock Text="Sequential downloads run one at a time; parallel mode uses the Threads value."
+                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <ComboBox x:Name="DownloadModeComboBox" Grid.Column="1" Style="{StaticResource RoundedComboStyle}">
+                            <ComboBoxItem Content="Sequential"/>
+                            <ComboBoxItem Content="Parallel"/>
+                        </ComboBox>
+                    </Grid>
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Threads" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+                            <TextBlock Text="Maximum number of files or chunks downloaded simultaneously."
+                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <TextBox x:Name="ThreadsTextBox" Grid.Column="1" Style="{StaticResource InputStyle}" ToolTip="1–64"/>
+                    </Grid>
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="HTTP connection limit" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+                            <TextBlock Text="Maximum simultaneous HTTP connections to one server."
+                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <TextBox x:Name="MaxHttpHandleTextBox" Grid.Column="1" Style="{StaticResource InputStyle}" ToolTip="1–256"/>
+                    </Grid>
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Download speed limit" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+                            <TextBlock Text="KB/s. Leave empty for Unlimited. This limit applies to the whole download operation."
+                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <TextBox x:Name="SpeedLimitTextBox" Grid.Column="1" Style="{StaticResource InputStyle}" ToolTip="Example: 10240 = 10 MB/s; empty = Unlimited"/>
+                    </Grid>
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Proxy" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+                            <TextBlock Text="System uses Windows proxy settings. Direct bypasses proxy. Custom uses the server below."
+                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <ComboBox x:Name="ProxyModeComboBox" Grid.Column="1" Style="{StaticResource RoundedComboStyle}" SelectionChanged="ProxyModeComboBox_SelectionChanged">
+                            <ComboBoxItem Content="System"/>
+                            <ComboBoxItem Content="Direct"/>
+                            <ComboBoxItem Content="Custom"/>
+                        </ComboBox>
+                    </Grid>
+                    <Grid Margin="0,10,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="140"/>
+                            <ColumnDefinition Width="80"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Proxy server" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+                        <TextBox x:Name="ProxyHostTextBox" Grid.Column="1" MinWidth="0" Style="{StaticResource InputStyle}" ToolTip="Example: 127.0.0.1"/>
+                        <TextBox x:Name="ProxyPortTextBox" Grid.Column="2" MinWidth="0" Margin="8,0,0,0" Style="{StaticResource InputStyle}" ToolTip="Example: 8080"/>
+                    </Grid>
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="DNS server" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+                            <TextBlock Text="Optional custom DNS for Aria2c. Leave empty to use the normal system resolver."
+                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <TextBox x:Name="DnsTextBox" Grid.Column="1" Style="{StaticResource InputStyle}" ToolTip="Example: 1.1.1.1 or 1.1.1.1,8.8.8.8"/>
+                    </Grid>
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel>
+                            <TextBlock Text="Log Level" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+                            <TextBlock Text="Debug is recommended while testing or troubleshooting downloads."
+                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                        </StackPanel>
+                        <ComboBox x:Name="LogLevelComboBox" Grid.Column="1" Style="{StaticResource RoundedComboStyle}">
+                            <ComboBoxItem Content="Trace"/>
+                            <ComboBoxItem Content="Debug"/>
+                            <ComboBoxItem Content="Info"/>
+                            <ComboBoxItem Content="Warn"/>
+                            <ComboBoxItem Content="Error"/>
+                            <ComboBoxItem Content="Fatal"/>
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Border>
+            <Border Style="{StaticResource CardStyle}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel>
+                        <TextBlock Text="Save settings"
+                                   Foreground="{DynamicResource TextBrush}"
+                                   FontSize="13"
+                                   FontWeight="SemiBold"/>
+                        <TextBlock x:Name="StatusTextBlock"
+                                   Text=""
+                                   Foreground="{DynamicResource MutedBrush}"
+                                   FontSize="10"
+                                   Margin="0,4,0,0"/>
+                    </StackPanel>
+                    <Button Grid.Column="1"
+                            Content="Save"
+                            Width="96"
+                            Height="40"
+                            Padding="20,0"
+                            Background="{DynamicResource AccentBrush}"
+                            Foreground="{DynamicResource InverseTextBrush}"
+                            BorderBrush="{DynamicResource AccentBrush}"
+                            BorderThickness="1"
+                            FontWeight="SemiBold"
+                            Cursor="Hand"
+                            Click="SaveButton_Click">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border Background="{TemplateBinding Background}"
+                                        BorderBrush="{TemplateBinding BorderBrush}"
+                                        BorderThickness="{TemplateBinding BorderThickness}"
+                                        CornerRadius="10"
+                                        Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Opacity" Value=".9"/>
+                                    </Trigger>
+                                    <Trigger Property="IsPressed" Value="True">
+                                        <Setter Property="Opacity" Value=".78"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
