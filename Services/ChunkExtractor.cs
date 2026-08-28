@@ -1,6 +1,4 @@
-using System.IO;
 using System.Security.Cryptography;
-using NLog;
 using SophonDownloader;
 using SophonDownloader.Core;
 using SophonDownloader.Models;
@@ -18,8 +16,18 @@ public sealed class ExtractionProgress
     public string StatusText { get; init; } = "";
 }
 
+public sealed class SophonChunkValidationException : Exception
+{
+    public string ChunkId { get; }
+
+    public SophonChunkValidationException(string chunkId, string message)
+        : base(message) => ChunkId = chunkId;
+}
+
 public sealed class ChunkExtractor : IDisposable
 {
+    private bool _isLdiffPatch;
+
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
     private const int BufferSize = 1024 * 1024;
 
@@ -98,7 +106,9 @@ public sealed class ChunkExtractor : IDisposable
     public async Task StartExtraction(
         List<SophonChunkFile> allFiles,
         string saveDirectory,
-        bool cleanupExtraFiles = false)
+        bool cleanupExtraFiles = false,
+        bool isPatch = false,
+        bool isLdiffPatch = false)
     {
         ThrowIfDisposed();
 
@@ -109,6 +119,7 @@ public sealed class ChunkExtractor : IDisposable
             throw new ArgumentException("Save directory cannot be empty.", nameof(saveDirectory));
 
         _cancellationTokenSource.Token.ThrowIfCancellationRequested();
+        _isLdiffPatch = isLdiffPatch;
 
         _totalFiles = allFiles.Count(file => !file.IsFolder);
         _completedFiles = 0;
@@ -141,11 +152,30 @@ public sealed class ChunkExtractor : IDisposable
                     continue;
                 }
 
-                await ExtractFileAsync(
-                    file,
-                    chunkStore,
-                    saveDirectory,
-                    _cancellationTokenSource.Token);
+                if (isPatch && _isLdiffPatch)
+                {
+                    await ExtractLdiffArtifactAsync(
+                        file,
+                        chunkStore,
+                        saveDirectory,
+                        _cancellationTokenSource.Token);
+                }
+                else if (isPatch)
+                {
+                    await ExtractPatchFileAsync(
+                        file,
+                        chunkStore,
+                        saveDirectory,
+                        _cancellationTokenSource.Token);
+                }
+                else
+                {
+                    await ExtractFileAsync(
+                        file,
+                        chunkStore,
+                        saveDirectory,
+                        _cancellationTokenSource.Token);
+                }
 
                 Interlocked.Increment(ref _completedFiles);
                 PublishProgress($"Extracted: {file.File}");
@@ -170,21 +200,254 @@ public sealed class ChunkExtractor : IDisposable
         }
     }
 
+    private async Task ExtractLdiffArtifactAsync(
+        SophonChunkFile file,
+        ChunkStore chunkStore,
+        string saveDirectory,
+        CancellationToken cancellationToken)
+    {
+        (string filePath, string temporaryPath) = PrepareOutputPaths(saveDirectory, file.File);
+        TryDeleteFile(temporaryPath);
+
+        Logger.Info($"Extracting LDiff artifact {file.File} ({Utility.FormatFileSize(file.Size)}).");
+
+        try
+        {
+            await using var output = new FileStream(
+                temporaryPath,
+                FileMode.Create,
+                FileAccess.Write,
+                FileShare.None,
+                BufferSize,
+                FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+            foreach (SophonChunk chunk in file.Chunks)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await WaitIfPausedAsync(cancellationToken);
+                await CopyRawLdiffChunkAsync(chunk, chunkStore, output, cancellationToken);
+            }
+
+            await output.FlushAsync(cancellationToken);
+            output.Close();
+
+            FileInfo info = new(temporaryPath);
+            if (info.Length != file.Size)
+                throw new SophonChunkValidationException(
+                    file.Chunks.FirstOrDefault()?.Id ?? file.File,
+                    $"LDiff artifact size mismatch for '{file.File}': expected {file.Size}, actual {info.Length}");
+
+            if (!string.IsNullOrWhiteSpace(file.Md5))
+            {
+                await using var md5Stream = new FileStream(temporaryPath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                string actualMd5 = await Utility.CalculateMd5Async(md5Stream);
+                if (!actualMd5.Equals(file.Md5, StringComparison.OrdinalIgnoreCase))
+                    throw new SophonChunkValidationException(
+                        file.Chunks.FirstOrDefault()?.Id ?? file.File,
+                        $"LDiff artifact MD5 mismatch for '{file.File}': expected {file.Md5}, actual {actualMd5}");
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(temporaryPath, filePath, true);
+            Logger.Info($"LDiff artifact extracted: {file.File}");
+        }
+        catch
+        {
+            TryDeleteFile(temporaryPath);
+            throw;
+        }
+    }
+
+    private async Task CopyRawLdiffChunkAsync(
+        SophonChunk chunk,
+        ChunkStore chunkStore,
+        FileStream output,
+        CancellationToken cancellationToken)
+    {
+        await using FileStream chunkStream = await OpenValidatedChunkAsync(
+            chunk, chunkStore, cancellationToken, isLdiff: true);
+        var buffer = new byte[BufferSize];
+        long copied = 0;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await WaitIfPausedAsync(cancellationToken);
+
+            int bytesRead = await chunkStream.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken);
+            if (bytesRead == 0)
+                break;
+
+            await output.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+            copied += bytesRead;
+            Interlocked.Add(ref _extractedBytes, bytesRead);
+            PublishProgress("Extracting LDiff patches...");
+        }
+
+        if (copied != chunk.CompressedSize)
+            throw new SophonChunkValidationException(
+                chunk.Id, $"LDiff payload copy mismatch for chunk '{chunk.Id}': expected {chunk.CompressedSize}, actual {copied}");
+    }
+
+    private async Task ExtractPatchFileAsync(
+        SophonChunkFile file,
+        ChunkStore chunkStore,
+        string saveDirectory,
+        CancellationToken cancellationToken)
+    {
+        (string filePath, string temporaryPath) = PrepareOutputPaths(saveDirectory, file.File);
+        TryDeleteFile(temporaryPath);
+
+        Logger.Info($"Extracting patch artifact {file.File} ({Utility.FormatFileSize(file.Size)}).");
+
+        try
+        {
+            await using var output = new FileStream(
+                temporaryPath,
+                FileMode.Create,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                BufferSize,
+                FileOptions.Asynchronous | FileOptions.RandomAccess);
+
+            if (file.Size > 0)
+                output.SetLength(file.Size);
+
+            foreach (SophonChunk chunk in file.Chunks)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await WaitIfPausedAsync(cancellationToken);
+
+                await WritePatchChunkAsync(
+                    chunk,
+                    chunkStore,
+                    output,
+                    cancellationToken);
+            }
+
+            await output.FlushAsync(cancellationToken);
+            output.Close();
+            File.Move(temporaryPath, filePath, true);
+            Logger.Info($"Patch artifact extracted: {file.File}");
+        }
+        catch
+        {
+            TryDeleteFile(temporaryPath);
+            throw;
+        }
+    }
+
+    private async Task WritePatchChunkAsync(
+        SophonChunk chunk,
+        ChunkStore chunkStore,
+        FileStream output,
+        CancellationToken cancellationToken)
+    {
+        await using FileStream chunkStream = await OpenValidatedChunkAsync(
+            chunk, chunkStore, cancellationToken);
+        using var decompressor = new DecompressionStream(chunkStream);
+        using var chunkMd5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
+        var buffer = new byte[BufferSize];
+        long chunkBytes = 0;
+
+        if (chunk.Offset < 0 || chunk.Offset + chunk.UncompressedSize > output.Length)
+            throw new InvalidDataException(
+                $"Patch chunk '{chunk.Id}' offset is outside the target file: offset={chunk.Offset}, size={chunk.UncompressedSize}, file={output.Length}");
+
+        output.Position = chunk.Offset;
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await WaitIfPausedAsync(cancellationToken);
+
+            int bytesRead = await decompressor.ReadAsync(
+                buffer.AsMemory(0, buffer.Length),
+                cancellationToken);
+
+            if (bytesRead == 0)
+                break;
+
+            await output.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken);
+            chunkMd5.AppendData(buffer, 0, bytesRead);
+            chunkBytes += bytesRead;
+            Interlocked.Add(ref _extractedBytes, bytesRead);
+            PublishProgress("Extracting patch chunks...");
+        }
+
+        string calculatedChunkMd5 = Convert.ToHexString(chunkMd5.GetHashAndReset()).ToLowerInvariant();
+
+        if (chunkBytes != chunk.UncompressedSize)
+            throw new SophonChunkValidationException(
+                chunk.Id, $"Decompressed size mismatch for chunk '{chunk.Id}': expected {chunk.UncompressedSize}, actual {chunkBytes}");
+
+        if (!calculatedChunkMd5.Equals(chunk.UncompressedMd5, StringComparison.OrdinalIgnoreCase))
+            throw new SophonChunkValidationException(
+                chunk.Id, $"Decompressed MD5 mismatch for chunk '{chunk.Id}': expected {chunk.UncompressedMd5}, actual {calculatedChunkMd5}");
+    }
+
+    private static (string FilePath, string TemporaryPath) PrepareOutputPaths(
+        string saveDirectory,
+        string relativePath)
+    {
+        string filePath = Path.GetFullPath(Path.Combine(saveDirectory, relativePath));
+        EnsurePathInsideSaveDirectory(saveDirectory, filePath);
+
+        string? directory = Path.GetDirectoryName(filePath);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        return (filePath, filePath + ".tmp");
+    }
+
+    private static async Task<FileStream> OpenValidatedChunkAsync(
+        SophonChunk chunk,
+        ChunkStore chunkStore,
+        CancellationToken cancellationToken,
+        bool isLdiff = false)
+    {
+        FileStream chunkStream = chunkStore.OpenChunk(chunk.Id);
+
+        try
+        {
+            if (chunkStream.Length != chunk.CompressedSize)
+            {
+                string message = isLdiff
+                    ? $"Cached LDiff payload size mismatch: {chunk.Id}. Expected {chunk.CompressedSize}, actual {chunkStream.Length}"
+                    : $"Cached chunk size mismatch: {chunk.Id}. Expected {chunk.CompressedSize}, actual {chunkStream.Length}";
+                throw new SophonChunkValidationException(chunk.Id, message);
+            }
+
+            if (!string.IsNullOrWhiteSpace(chunk.CompressedMd5))
+            {
+                string actualMd5 = await Utility.CalculateMd5Async(chunkStream);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (!actualMd5.Equals(chunk.CompressedMd5, StringComparison.OrdinalIgnoreCase))
+                {
+                    string message = isLdiff
+                        ? $"LDiff payload MD5 mismatch for chunk '{chunk.Id}'. Expected {chunk.CompressedMd5}, actual {actualMd5}"
+                        : $"Compressed MD5 mismatch for chunk '{chunk.Id}'. Expected {chunk.CompressedMd5}, actual {actualMd5}";
+                    throw new SophonChunkValidationException(chunk.Id, message);
+                }
+            }
+
+            chunkStream.Position = 0;
+            return chunkStream;
+        }
+        catch
+        {
+            await chunkStream.DisposeAsync();
+            throw;
+        }
+    }
+
     private async Task ExtractFileAsync(
         SophonChunkFile file,
         ChunkStore chunkStore,
         string saveDirectory,
         CancellationToken cancellationToken)
     {
-        string filePath = Path.GetFullPath(Path.Combine(saveDirectory, file.File));
-        EnsurePathInsideSaveDirectory(saveDirectory, filePath);
-
-        string? directory = Path.GetDirectoryName(filePath);
-
-        if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
-
-        string temporaryPath = filePath + ".tmp";
+        (string filePath, string temporaryPath) = PrepareOutputPaths(saveDirectory, file.File);
 
         if (File.Exists(temporaryPath))
         {
@@ -265,7 +528,7 @@ public sealed class ChunkExtractor : IDisposable
         await using FileStream chunkStream = chunkStore.OpenChunk(chunk.Id);
 
         if (chunkStream.Length != chunk.CompressedSize)
-            throw new InvalidDataException(
+            throw new SophonChunkValidationException(chunk.Id,
                 $"Cached chunk size mismatch: {chunk.Id}. " +
                 $"Expected {chunk.CompressedSize}, actual {chunkStream.Length}");
 
@@ -275,7 +538,7 @@ public sealed class ChunkExtractor : IDisposable
             cancellationToken.ThrowIfCancellationRequested();
 
             if (!compressedMd5.Equals(chunk.CompressedMd5, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException(
+                throw new SophonChunkValidationException(chunk.Id,
                     $"Compressed MD5 mismatch for chunk '{chunk.Id}'. " +
                     $"Expected {chunk.CompressedMd5}, actual {compressedMd5}");
         }
@@ -314,12 +577,12 @@ public sealed class ChunkExtractor : IDisposable
         string calculatedChunkMd5 = Convert.ToHexString(chunkMd5.GetHashAndReset()).ToLowerInvariant();
 
         if (chunkBytes != chunk.UncompressedSize)
-            throw new InvalidDataException(
+            throw new SophonChunkValidationException(chunk.Id,
                 $"Decompressed size mismatch for chunk '{chunk.Id}': " +
                 $"expected {chunk.UncompressedSize}, actual {chunkBytes}");
 
         if (!calculatedChunkMd5.Equals(chunk.UncompressedMd5, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException(
+            throw new SophonChunkValidationException(chunk.Id,
                 $"Decompressed MD5 mismatch for chunk '{chunk.Id}': " +
                 $"expected {chunk.UncompressedMd5}, actual {calculatedChunkMd5}");
 
@@ -365,9 +628,7 @@ public sealed class ChunkExtractor : IDisposable
         }
 
         var directories = Directory.GetDirectories(
-                saveDirectory,
-                "*",
-                SearchOption.AllDirectories)
+            saveDirectory, "*", SearchOption.AllDirectories)
             .OrderByDescending(path => path.Length)
             .ToList();
 

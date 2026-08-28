@@ -1,6 +1,3 @@
-using System.Diagnostics;
-using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Navigation;
 
 namespace SophonDownloader;
@@ -22,7 +19,7 @@ public partial class LicenseView : UserControl
                 UseShellExecute = true
             });
         }
-        catch { }
+        catch {}
 
         e.Handled = true;
     }

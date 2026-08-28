@@ -1,4 +1,3 @@
-using NLog;
 using SophonDownloader;
 using SophonDownloader.Core;
 using SophonDownloader.Models;
@@ -95,7 +94,7 @@ public sealed class SophonCoreDownloader : IDisposable
     }
 
     public async Task StartExtraction(List<SophonChunkFile> allFiles,
-        string saveDirectory, bool cleanupExtraFiles = false)
+        string saveDirectory, bool cleanupExtraFiles = false, bool isPatch = false, bool isLdiffPatch = false)
     {
         ThrowIfDisposed();
         DisposeChunkDownloader();
@@ -112,7 +111,7 @@ public sealed class SophonCoreDownloader : IDisposable
 
         try
         {
-            await _chunkExtractor.StartExtraction(allFiles, saveDirectory, cleanupExtraFiles);
+            await _chunkExtractor.StartExtraction(allFiles, saveDirectory, cleanupExtraFiles, isPatch, isLdiffPatch);
         }
         catch (Exception ex)
         {

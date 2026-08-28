@@ -10,6 +10,10 @@ public sealed class SophonContentSet
         new(StringComparer.OrdinalIgnoreCase);
 
     public List<SophonContentOption> SelectedContent { get; init; } = [];
+    public bool IsPatch { get; init; }
+    public bool IsLdiffPatch { get; init; }
+    public string? PatchFromVersion { get; init; }
+    public string? PatchToVersion { get; init; }
 
     public int FileCount =>
         AllFiles.Count(file => !file.IsFolder);

@@ -1,5 +1,3 @@
-using System.IO;
-
 using SophonDownloader.Utilities;
 
 namespace SophonDownloader.Core;

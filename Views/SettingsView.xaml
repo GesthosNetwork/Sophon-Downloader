@@ -1,7 +1,9 @@
 <UserControl x:Class="SophonDownloader.SettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
     <UserControl.Resources>
+
         <Style x:Key="CardStyle" TargetType="Border">
             <Setter Property="Background" Value="{DynamicResource PanelBrush}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
@@ -10,6 +12,7 @@
             <Setter Property="Padding" Value="20"/>
             <Setter Property="Margin" Value="0,0,0,14"/>
         </Style>
+
         <ControlTemplate x:Key="RoundedComboTemplate" TargetType="ComboBox">
             <Grid>
                 <Border x:Name="ComboBorder"
@@ -24,6 +27,7 @@
                                           Content="{TemplateBinding SelectionBoxItem}"
                                           ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
                                           ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"/>
+
                         <Path HorizontalAlignment="Right"
                               VerticalAlignment="Center"
                               Width="8"
@@ -32,6 +36,7 @@
                               Data="M 0 0 L 8 0 L 4 5 Z"/>
                     </Grid>
                 </Border>
+
                 <ToggleButton x:Name="DropDownToggle"
                               Background="Transparent"
                               BorderThickness="0"
@@ -41,49 +46,65 @@
                               IsChecked="{Binding IsDropDownOpen, RelativeSource={RelativeSource TemplatedParent}}">
                     <ToggleButton.Template>
                         <ControlTemplate TargetType="ToggleButton">
-                            <Border Background="Transparent" CornerRadius="10"/>
+                            <Border Background="Transparent"
+                                    CornerRadius="10"/>
                         </ControlTemplate>
                     </ToggleButton.Template>
                 </ToggleButton>
+
                 <Popup IsOpen="{TemplateBinding IsDropDownOpen}"
                        Placement="Bottom"
                        AllowsTransparency="True"
                        Focusable="False"
                        PopupAnimation="Fade">
+
                     <Border Background="{DynamicResource InputBrush}"
                             BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="1"
                             CornerRadius="10"
                             Padding="4"
                             Width="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
+
                         <ScrollViewer MaxHeight="280">
                             <ItemsPresenter/>
                         </ScrollViewer>
                     </Border>
                 </Popup>
             </Grid>
+
             <ControlTemplate.Triggers>
-                <Trigger SourceName="DropDownToggle" Property="IsMouseOver" Value="True">
-                    <Setter TargetName="ComboBorder" Property="BorderBrush" Value="{DynamicResource PrimaryHoverBrush}"/>
-                    <Setter TargetName="ComboBorder" Property="Background" Value="{DynamicResource SurfaceHoverBrush}"/>
+                <Trigger SourceName="DropDownToggle"
+                         Property="IsMouseOver"
+                         Value="True">
+
+                    <Setter TargetName="ComboBorder"
+                            Property="BorderBrush"
+                            Value="{DynamicResource PrimaryHoverBrush}"/>
+
+                    <Setter TargetName="ComboBorder"
+                            Property="Background"
+                            Value="{DynamicResource SurfaceHoverBrush}"/>
                 </Trigger>
             </ControlTemplate.Triggers>
         </ControlTemplate>
+
         <Style x:Key="RoundedComboStyle" TargetType="ComboBox">
             <Setter Property="Height" Value="38"/>
             <Setter Property="MinWidth" Value="0"/>
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
             <Setter Property="Template" Value="{StaticResource RoundedComboTemplate}"/>
         </Style>
+
         <Style x:Key="InputStyle" TargetType="TextBox">
             <Setter Property="Height" Value="38"/>
-            <Setter Property="MinWidth" Value="220"/>
+            <Setter Property="MinWidth" Value="0"/>
             <Setter Property="Padding" Value="10,0"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
             <Setter Property="Background" Value="{DynamicResource InputBrush}"/>
             <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
+
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TextBox">
@@ -93,115 +114,431 @@
                                 BorderThickness="{TemplateBinding BorderThickness}"
                                 CornerRadius="10"
                                 Padding="{TemplateBinding Padding}">
+
                             <ScrollViewer x:Name="PART_ContentHost"/>
                         </Border>
+
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="InputBorder" Property="Background" Value="{DynamicResource SurfaceHoverBrush}"/>
-                                <Setter TargetName="InputBorder" Property="BorderBrush" Value="{DynamicResource PrimaryHoverBrush}"/>
+
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+
+                                <Setter TargetName="InputBorder"
+                                        Property="Background"
+                                        Value="{DynamicResource SurfaceHoverBrush}"/>
+
+                                <Setter TargetName="InputBorder"
+                                        Property="BorderBrush"
+                                        Value="{DynamicResource PrimaryHoverBrush}"/>
                             </Trigger>
-                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
-                                <Setter TargetName="InputBorder" Property="BorderBrush" Value="{DynamicResource PrimaryHoverBrush}"/>
+
+                            <Trigger Property="IsKeyboardFocusWithin"
+                                     Value="True">
+
+                                <Setter TargetName="InputBorder"
+                                        Property="BorderBrush"
+                                        Value="{DynamicResource PrimaryHoverBrush}"/>
                             </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="InputBorder" Property="Opacity" Value=".45"/>
+
+                            <Trigger Property="IsEnabled"
+                                     Value="False">
+
+                                <Setter TargetName="InputBorder"
+                                        Property="Opacity"
+                                        Value=".45"/>
                             </Trigger>
+
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
+
         <Style TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="{DynamicResource PrimaryTextBrush}"/>
-            <Setter Property="Background" Value="{DynamicResource InputBrush}"/>
-            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Foreground"
+                    Value="{DynamicResource PrimaryTextBrush}"/>
+
+            <Setter Property="Background"
+                    Value="{DynamicResource InputBrush}"/>
+
+            <Setter Property="Padding"
+                    Value="10,8"/>
         </Style>
+
+        <Style x:Key="BackgroundActionButton" TargetType="Button">
+
+            <Setter Property="Height" Value="38"/>
+            <Setter Property="Padding" Value="15,0"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource InputBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+
+            <Setter Property="Template">
+                <Setter.Value>
+
+                    <ControlTemplate TargetType="Button">
+
+                        <Border x:Name="ActionBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="10"
+                                Padding="{TemplateBinding Padding}">
+
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+
+                        <ControlTemplate.Triggers>
+
+                            <Trigger Property="IsMouseOver"
+                                     Value="True">
+
+                                <Setter TargetName="ActionBorder"
+                                        Property="Background"
+                                        Value="{DynamicResource SurfaceHoverBrush}"/>
+
+                                <Setter TargetName="ActionBorder"
+                                        Property="BorderBrush"
+                                        Value="{DynamicResource PrimaryHoverBrush}"/>
+                            </Trigger>
+
+                            <Trigger Property="IsPressed"
+                                     Value="True">
+
+                                <Setter TargetName="ActionBorder"
+                                        Property="Opacity"
+                                        Value=".82"/>
+                            </Trigger>
+
+                            <Trigger Property="IsEnabled"
+                                     Value="False">
+
+                                <Setter TargetName="ActionBorder"
+                                        Property="Opacity"
+                                        Value=".45"/>
+                            </Trigger>
+
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryBackgroundActionButton"
+               BasedOn="{StaticResource BackgroundActionButton}"
+               TargetType="Button">
+
+            <Setter Property="Foreground"
+                    Value="{DynamicResource InverseTextBrush}"/>
+
+            <Setter Property="Background"
+                    Value="{DynamicResource AccentBrush}"/>
+
+            <Setter Property="BorderBrush"
+                    Value="{DynamicResource AccentBrush}"/>
+        </Style>
+
     </UserControl.Resources>
+
     <ScrollViewer VerticalScrollBarVisibility="Auto">
+
         <StackPanel>
+
             <TextBlock Text="PREFERENCE"
                        Foreground="{DynamicResource TextBrush}"
                        FontSize="25"
                        FontWeight="SemiBold"/>
-            <TextBlock Text="Application appearance and network preferences."
+
+            <TextBlock Text="Appearance, download engine, network and diagnostics preferences."
                        Foreground="{DynamicResource MutedBrush}"
                        FontSize="12"
                        Margin="0,6,0,24"/>
+
             <Border Style="{StaticResource CardStyle}">
                 <StackPanel>
+
                     <TextBlock Text="Appearance"
                                Foreground="{DynamicResource TextBrush}"
                                FontSize="16"
                                FontWeight="SemiBold"/>
-                    <TextBlock Text="Launcher-style rounded selectors for theme palette and light/dark mode."
+
+                    <TextBlock Text="Theme, color palette and application font."
                                Foreground="{DynamicResource MutedBrush}"
                                FontSize="11"
                                Margin="0,4,0,16"/>
+
                     <Grid>
+
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="180"/>
                             <ColumnDefinition Width="170"/>
                         </Grid.ColumnDefinitions>
+
                         <StackPanel>
-                            <TextBlock Text="Theme" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
-                            <TextBlock Text="Default, Red, Blue, Green or Purple.
-"
+
+                            <TextBlock Text="Theme"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
+                            <TextBlock Text="Color palette and light/dark mode."
                                        Foreground="{DynamicResource MutedBrush}"
                                        FontSize="10"
                                        Margin="0,4,0,0"/>
                         </StackPanel>
-                        <ComboBox x:Name="ThemePaletteComboBox" Grid.Column="1" Style="{StaticResource RoundedComboStyle}" SelectionChanged="ThemePaletteComboBox_SelectionChanged">
+
+                        <ComboBox x:Name="ThemePaletteComboBox"
+                                  Grid.Column="1"
+                                  Style="{StaticResource RoundedComboStyle}"
+                                  SelectionChanged="ThemePaletteComboBox_SelectionChanged">
+
                             <ComboBoxItem Content="Default"/>
                             <ComboBoxItem Content="Red"/>
                             <ComboBoxItem Content="Blue"/>
                             <ComboBoxItem Content="Green"/>
                             <ComboBoxItem Content="Purple"/>
+                            <ComboBoxItem Content="Orange"/>
+                            <ComboBoxItem Content="Yellow"/>
+                            <ComboBoxItem Content="Custom"/>
+
                         </ComboBox>
-                        <ComboBox x:Name="ThemeModeComboBox" Grid.Column="2" Margin="8,0,0,0" Style="{StaticResource RoundedComboStyle}" SelectionChanged="ThemeModeComboBox_SelectionChanged">
+
+                        <ComboBox x:Name="ThemeModeComboBox"
+                                  Grid.Column="2"
+                                  Margin="8,0,0,0"
+                                  Style="{StaticResource RoundedComboStyle}"
+                                  SelectionChanged="ThemeModeComboBox_SelectionChanged">
+
                             <ComboBoxItem Content="Light"/>
                             <ComboBoxItem Content="Dark"/>
+
                         </ComboBox>
+
                     </Grid>
+
+                    <Border x:Name="CustomAccentPanel"
+                            Visibility="Collapsed"
+                            Background="{DynamicResource InputBrush}"
+                            BorderBrush="{DynamicResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="10"
+                            Padding="14"
+                            Margin="0,12,0,0">
+
+                        <StackPanel>
+                            <TextBlock Text="Custom Accent Color"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"/>
+                            <TextBlock Text="Choose any RGB color. The palette is generated automatically for Light and Dark mode."
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,10"
+                                       TextWrapping="Wrap"/>
+
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="110"/>
+                                    <ColumnDefinition Width="110"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBox x:Name="CustomAccentHexTextBox"
+                                         Style="{StaticResource InputStyle}"
+                                         Width="96"
+                                         MaxLength="7"
+                                         HorizontalAlignment="Left"
+                                         Text="#FF7A00"
+                                         TextChanged="CustomAccentHexTextBox_TextChanged"/>
+                            </Grid>
+
+                            <Border x:Name="CustomAccentPreview"
+                                    Background="#FF7A00"
+                                    CornerRadius="8"
+                                    Height="34"
+                                    Margin="0,10,0,0"/>
+
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="42"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Red" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
+                                <Slider x:Name="CustomRedSlider" Grid.Column="1" Minimum="0" Maximum="255" ValueChanged="CustomColorSlider_ValueChanged"/>
+                                <TextBlock x:Name="CustomRedValueText" Grid.Column="2" Foreground="{DynamicResource TextBrush}" Text="255" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Grid Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="42"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Green" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
+                                <Slider x:Name="CustomGreenSlider" Grid.Column="1" Minimum="0" Maximum="255" ValueChanged="CustomColorSlider_ValueChanged"/>
+                                <TextBlock x:Name="CustomGreenValueText" Grid.Column="2" Foreground="{DynamicResource TextBrush}" Text="122" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Grid Margin="0,6,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="70"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="42"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="Blue" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
+                                <Slider x:Name="CustomBlueSlider" Grid.Column="1" Minimum="0" Maximum="255" ValueChanged="CustomColorSlider_ValueChanged"/>
+                                <TextBlock x:Name="CustomBlueValueText" Grid.Column="2" Foreground="{DynamicResource TextBrush}" Text="0" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
                     <Grid Margin="0,12,0,0">
+
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="350"/>
                         </Grid.ColumnDefinitions>
+
                         <StackPanel>
-                            <TextBlock Text="Font" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
-                            <TextBlock Text="Choose a font installed on this system." Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0"/>
+
+                            <TextBlock Text="Font"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
+                            <TextBlock Text="Choose a font installed on this system."
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"/>
                         </StackPanel>
-                        <ComboBox x:Name="FontFamilyComboBox" Grid.Column="1" Style="{StaticResource RoundedComboStyle}" SelectionChanged="FontFamilyComboBox_SelectionChanged">
+
+                        <ComboBox x:Name="FontFamilyComboBox"
+                                  Grid.Column="1"
+                                  Style="{StaticResource RoundedComboStyle}"
+                                  SelectionChanged="FontFamilyComboBox_SelectionChanged">
+
                             <ComboBox.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding Source}" FontFamily="{Binding}"/>
+
+                                    <TextBlock Text="{Binding Source}"
+                                               FontFamily="{Binding}"/>
+
                                 </DataTemplate>
                             </ComboBox.ItemTemplate>
+
                         </ComboBox>
+
                     </Grid>
+
                 </StackPanel>
             </Border>
+
             <Border Style="{StaticResource CardStyle}">
                 <StackPanel>
-                    <TextBlock Text="Network / Proxy"
+
+                    <TextBlock Text="Background"
                                Foreground="{DynamicResource TextBrush}"
                                FontSize="16"
                                FontWeight="SemiBold"/>
-                    <TextBlock Text="Connection, proxy, bandwidth and downloader behavior."
+
+                    <TextBlock Text="Choose an optional image used behind the main content."
                                Foreground="{DynamicResource MutedBrush}"
                                FontSize="11"
                                Margin="0,4,0,18"/>
+
                     <Grid>
+
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="520"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel VerticalAlignment="Center">
+
+                            <TextBlock Text="Background image"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
+                            <TextBlock Text="PNG, JPG, JPEG, BMP or GIF."
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,20,0"/>
+
+                        </StackPanel>
+
+                        <Grid Grid.Column="1">
+
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBox x:Name="BackgroundImageTextBox"
+                                     Grid.Column="0"
+                                     Height="38"
+                                     Style="{StaticResource InputStyle}"
+                                     IsReadOnly="True"
+                                     ToolTip="Selected background image path"
+                                     Margin="0,0,8,0"/>
+
+                            <Button Grid.Column="1"
+                                    Content="Browse..."
+                                    Width="92"
+                                    Height="38"
+                                    Style="{StaticResource PrimaryBackgroundActionButton}"
+                                    Click="BrowseBackgroundButton_Click"/>
+
+                            <Button Grid.Column="2"
+                                    Content="Clear"
+                                    Width="72"
+                                    Height="38"
+                                    Margin="8,0,0,0"
+                                    Style="{StaticResource BackgroundActionButton}"
+                                    Click="ClearBackgroundButton_Click"
+                                    ToolTip="Remove the selected background image"/>
+
+                        </Grid>
+
+                    </Grid>
+
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+
+                    <TextBlock Text="Download Engine"
+                               Foreground="{DynamicResource TextBrush}"
+                               FontSize="16"
+                               FontWeight="SemiBold"/>
+
+                    <TextBlock Text="Downloader engine and concurrency controls."
+                               Foreground="{DynamicResource MutedBrush}"
+                               FontSize="11"
+                               Margin="0,4,0,18"/>
+
+                    <Grid>
+
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="220"/>
                         </Grid.ColumnDefinitions>
+
                         <StackPanel>
-                            <TextBlock Text="Download engine" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+
+                            <TextBlock Text="Download engine"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
                             <TextBlock Text="Aria2c is faster for multi-connection downloads; turn it off to use the built-in HTTP engine."
-                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"/>
                         </StackPanel>
+
                         <CheckBox x:Name="UseAria2cCheckBox"
                                   Grid.Column="1"
                                   IsChecked="True"
@@ -211,168 +548,327 @@
                                   Foreground="{DynamicResource TextBrush}"
                                   Checked="UseAria2cCheckBox_Changed"
                                   Unchecked="UseAria2cCheckBox_Changed"/>
+
                     </Grid>
+
                     <Grid Margin="0,16,0,0">
+
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="220"/>
                         </Grid.ColumnDefinitions>
+
                         <StackPanel>
-                            <TextBlock Text="Download mode" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
-                            <TextBlock Text="Sequential downloads run one at a time; parallel mode uses the Threads value."
-                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+                            <TextBlock Text="Download mode"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
+                            <TextBlock Text="Sequential downloads run one at a time; parallel mode uses Threads."
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"/>
+
                         </StackPanel>
-                        <ComboBox x:Name="DownloadModeComboBox" Grid.Column="1" Style="{StaticResource RoundedComboStyle}">
-                            <ComboBoxItem Content="Sequential"/>
+
+                        <ComboBox x:Name="DownloadModeComboBox"
+                                  Grid.Column="1"
+                                  SelectionChanged="DownloadModeComboBox_SelectionChanged"
+                                  Style="{StaticResource RoundedComboStyle}">
+
                             <ComboBoxItem Content="Parallel"/>
+                            <ComboBoxItem Content="Sequential"/>
+
                         </ComboBox>
+
                     </Grid>
+
                     <Grid Margin="0,16,0,0">
+
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="220"/>
                         </Grid.ColumnDefinitions>
+
                         <StackPanel>
-                            <TextBlock Text="Threads" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
-                            <TextBlock Text="Maximum number of files or chunks downloaded simultaneously."
-                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+                            <TextBlock Text="Threads"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
+                            <TextBlock Text="Automatic default is conservative and scales with CPU capacity. Override it when needed."
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"/>
+
                         </StackPanel>
-                        <TextBox x:Name="ThreadsTextBox" Grid.Column="1" Style="{StaticResource InputStyle}" ToolTip="1–64"/>
+
+                        <TextBox x:Name="ThreadsTextBox"
+                                 Grid.Column="1"
+                                 Style="{StaticResource InputStyle}"
+                                 TextChanged="AutoSaveTextBox_TextChanged"
+                                 ToolTip="1–64; automatic default follows CPU capacity"/>
+
                     </Grid>
+
                     <Grid Margin="0,16,0,0">
+
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="220"/>
                         </Grid.ColumnDefinitions>
+
                         <StackPanel>
-                            <TextBlock Text="HTTP connection limit" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
-                            <TextBlock Text="Maximum simultaneous HTTP connections to one server."
-                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+                            <TextBlock Text="HTTP connection limit"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
+                            <TextBlock Text="Automatic default provides headroom without using the device maximum."
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"/>
+
                         </StackPanel>
-                        <TextBox x:Name="MaxHttpHandleTextBox" Grid.Column="1" Style="{StaticResource InputStyle}" ToolTip="1–256"/>
+
+                        <TextBox x:Name="MaxHttpHandleTextBox"
+                                 Grid.Column="1"
+                                 Style="{StaticResource InputStyle}"
+                                 TextChanged="AutoSaveTextBox_TextChanged"
+                                 ToolTip="1–256; automatic default follows thread count"/>
+
                     </Grid>
+
                     <Grid Margin="0,16,0,0">
+
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="220"/>
                         </Grid.ColumnDefinitions>
+
                         <StackPanel>
-                            <TextBlock Text="Download speed limit" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
-                            <TextBlock Text="KB/s. Leave empty for Unlimited. This limit applies to the whole download operation."
-                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+                            <TextBlock Text="Download speed limit"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
+                            <TextBlock Text="KB/s. Leave empty for unlimited speed."
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"/>
+
                         </StackPanel>
-                        <TextBox x:Name="SpeedLimitTextBox" Grid.Column="1" Style="{StaticResource InputStyle}" ToolTip="Example: 10240 = 10 MB/s; empty = Unlimited"/>
+
+                        <TextBox x:Name="SpeedLimitTextBox"
+                                 Grid.Column="1"
+                                 Style="{StaticResource InputStyle}"
+                                 TextChanged="AutoSaveTextBox_TextChanged"
+                                 ToolTip="Leave empty for unlimited"/>
+
                     </Grid>
-                    <Grid Margin="0,16,0,0">
+
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+
+                    <TextBlock Text="Network / Proxy"
+                               Foreground="{DynamicResource TextBrush}"
+                               FontSize="16"
+                               FontWeight="SemiBold"/>
+
+                    <TextBlock Text="Connection, proxy and DNS preferences."
+                               Foreground="{DynamicResource MutedBrush}"
+                               FontSize="11"
+                               Margin="0,4,0,18"/>
+
+                    <Grid>
+
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="220"/>
                         </Grid.ColumnDefinitions>
+
                         <StackPanel>
-                            <TextBlock Text="Proxy" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+
+                            <TextBlock Text="Proxy"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
                             <TextBlock Text="System uses Windows proxy settings. Direct bypasses proxy. Custom uses the server below."
-                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"/>
+
                         </StackPanel>
-                        <ComboBox x:Name="ProxyModeComboBox" Grid.Column="1" Style="{StaticResource RoundedComboStyle}" SelectionChanged="ProxyModeComboBox_SelectionChanged">
+
+                        <ComboBox x:Name="ProxyModeComboBox"
+                                  Grid.Column="1"
+                                  Style="{StaticResource RoundedComboStyle}"
+                                  SelectionChanged="ProxyModeComboBox_SelectionChanged">
+
                             <ComboBoxItem Content="System"/>
                             <ComboBoxItem Content="Direct"/>
                             <ComboBoxItem Content="Custom"/>
+
                         </ComboBox>
+
                     </Grid>
+
                     <Grid Margin="0,10,0,0">
+
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="140"/>
                             <ColumnDefinition Width="80"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="Proxy server" VerticalAlignment="Center" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
-                        <TextBox x:Name="ProxyHostTextBox" Grid.Column="1" MinWidth="0" Style="{StaticResource InputStyle}" ToolTip="Example: 127.0.0.1"/>
-                        <TextBox x:Name="ProxyPortTextBox" Grid.Column="2" MinWidth="0" Margin="8,0,0,0" Style="{StaticResource InputStyle}" ToolTip="Example: 8080"/>
+
+                        <TextBlock Text="Proxy server"
+                                   VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextBrush}"
+                                   FontSize="12"/>
+
+                        <TextBox x:Name="ProxyHostTextBox"
+                                 Grid.Column="1"
+                                 MinWidth="0"
+                                 Style="{StaticResource InputStyle}"
+                                 TextChanged="AutoSaveTextBox_TextChanged"
+                                 ToolTip="Example: 127.0.0.1"/>
+
+                        <TextBox x:Name="ProxyPortTextBox"
+                                 Grid.Column="2"
+                                 MinWidth="0"
+                                 Margin="8,0,0,0"
+                                 Style="{StaticResource InputStyle}"
+                                 TextChanged="AutoSaveTextBox_TextChanged"
+                                 ToolTip="Example: 8080"/>
+
                     </Grid>
+
                     <Grid Margin="0,16,0,0">
+
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="220"/>
                         </Grid.ColumnDefinitions>
+
                         <StackPanel>
-                            <TextBlock Text="DNS server" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
+
+                            <TextBlock Text="DNS server"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
                             <TextBlock Text="Optional custom DNS for Aria2c. Leave empty to use the normal system resolver."
-                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"/>
+
                         </StackPanel>
-                        <TextBox x:Name="DnsTextBox" Grid.Column="1" Style="{StaticResource InputStyle}" ToolTip="Example: 1.1.1.1 or 1.1.1.1,8.8.8.8"/>
+
+                        <TextBox x:Name="DnsTextBox"
+                                 Grid.Column="1"
+                                 Style="{StaticResource InputStyle}"
+                                 TextChanged="AutoSaveTextBox_TextChanged"
+                                 ToolTip="Example: 1.1.1.1 or 1.1.1.1,8.8.8.8"/>
+
                     </Grid>
-                    <Grid Margin="0,16,0,0">
+
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel>
+
+                    <TextBlock Text="Diagnostics"
+                               Foreground="{DynamicResource TextBrush}"
+                               FontSize="16"
+                               FontWeight="SemiBold"/>
+
+                    <TextBlock Text="Troubleshooting and runtime logging."
+                               Foreground="{DynamicResource MutedBrush}"
+                               FontSize="11"
+                               Margin="0,4,0,18"/>
+
+                    <Grid>
+
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="220"/>
                         </Grid.ColumnDefinitions>
+
                         <StackPanel>
-                            <TextBlock Text="Log Level" Foreground="{DynamicResource TextBrush}" FontSize="12"/>
-                            <TextBlock Text="Debug is recommended while testing or troubleshooting downloads."
-                                       Foreground="{DynamicResource MutedBrush}" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
+
+                            <TextBlock Text="Show Console"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
+                            <TextBlock Text="Open the live diagnostic console. Disabled by default."
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"/>
+
                         </StackPanel>
-                        <ComboBox x:Name="LogLevelComboBox" Grid.Column="1" Style="{StaticResource RoundedComboStyle}">
+
+                        <CheckBox x:Name="ShowConsoleCheckBox"
+                                  Grid.Column="1"
+                                  Checked="ShowConsoleCheckBox_Changed"
+                                  Unchecked="ShowConsoleCheckBox_Changed"
+                                  HorizontalAlignment="Left"
+                                  VerticalAlignment="Center"
+                                  Content="Show Console"
+                                  Foreground="{DynamicResource TextBrush}"/>
+
+                    </Grid>
+
+                    <Grid Margin="0,16,0,0">
+
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel>
+
+                            <TextBlock Text="Log level"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
+                            <TextBlock Text="Debug shows useful diagnostic details; Info keeps output quieter."
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"/>
+
+                        </StackPanel>
+
+                        <ComboBox x:Name="LogLevelComboBox"
+                                  Grid.Column="1"
+                                  SelectionChanged="LogLevelComboBox_SelectionChanged"
+                                  Style="{StaticResource RoundedComboStyle}">
+
                             <ComboBoxItem Content="Trace"/>
                             <ComboBoxItem Content="Debug"/>
                             <ComboBoxItem Content="Info"/>
                             <ComboBoxItem Content="Warn"/>
                             <ComboBoxItem Content="Error"/>
                             <ComboBoxItem Content="Fatal"/>
+
                         </ComboBox>
+
                     </Grid>
+
                 </StackPanel>
             </Border>
-            <Border Style="{StaticResource CardStyle}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <StackPanel>
-                        <TextBlock Text="Save settings"
-                                   Foreground="{DynamicResource TextBrush}"
-                                   FontSize="13"
-                                   FontWeight="SemiBold"/>
-                        <TextBlock x:Name="StatusTextBlock"
-                                   Text=""
-                                   Foreground="{DynamicResource MutedBrush}"
-                                   FontSize="10"
-                                   Margin="0,4,0,0"/>
-                    </StackPanel>
-                    <Button Grid.Column="1"
-                            Content="Save"
-                            Width="96"
-                            Height="40"
-                            Padding="20,0"
-                            Background="{DynamicResource AccentBrush}"
-                            Foreground="{DynamicResource InverseTextBrush}"
-                            BorderBrush="{DynamicResource AccentBrush}"
-                            BorderThickness="1"
-                            FontWeight="SemiBold"
-                            Cursor="Hand"
-                            Click="SaveButton_Click">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}"
-                                        BorderBrush="{TemplateBinding BorderBrush}"
-                                        BorderThickness="{TemplateBinding BorderThickness}"
-                                        CornerRadius="10"
-                                        Padding="{TemplateBinding Padding}">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Opacity" Value=".9"/>
-                                    </Trigger>
-                                    <Trigger Property="IsPressed" Value="True">
-                                        <Setter Property="Opacity" Value=".78"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                    </Button>
-                </Grid>
-            </Border>
+
+
+
         </StackPanel>
     </ScrollViewer>
 </UserControl>

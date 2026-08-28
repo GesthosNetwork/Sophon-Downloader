@@ -1,13 +1,9 @@
-using System.IO;
-using System.Net.Http;
-using System.Text.Json;
 using ProtoBuf;
-using ZstdSharp;
-using NLog;
 using SophonDownloader;
 using SophonDownloader.Core;
 using SophonDownloader.Models;
 using SophonDownloader.Utilities;
+using ZstdSharp;
 
 namespace SophonDownloader.Services;
 
@@ -21,6 +17,7 @@ public sealed class SophonDownloadService : IDisposable
     };
 
     private readonly SophonCoreDownloader _downloader = new();
+    private readonly ILdiffMetadataProvider _ldiffMetadataProvider = new LdiffMetadataProvider();
     private readonly SemaphoreSlim _operationLock = new(1, 1);
 
     private ManifestConfig? _currentManifest;
@@ -109,6 +106,147 @@ public sealed class SophonDownloadService : IDisposable
 
         return manifest.data.manifests
             .Select(category => new SophonContentOption(category) { IsSelected = false }).ToList();
+    }
+
+    public async Task<SophonContentSet> LoadSelectedPatchContentAsync(
+        GameInfo game,
+        ManifestConfig fromManifest,
+        ManifestConfig toManifest,
+        IEnumerable<SophonContentOption> selected,
+        CancellationToken cancellationToken = default)
+    {
+        ThrowIfDisposed();
+
+        List<SophonContentOption> selectedList =
+            selected.Where(option => option.IsSelected).ToList();
+
+        if (selectedList.Count == 0)
+            throw new InvalidOperationException("No Sophon content was selected.");
+
+        var allFiles = new List<SophonChunkFile>();
+        var fileManifest = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (SophonContentOption option in selectedList)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            string matchingField = option.Category.matching_field;
+            if (string.IsNullOrWhiteSpace(matchingField))
+                throw new InvalidOperationException(
+                    $"Sophon category '{option.Category.category_id}' does not provide a matching field.");
+
+            LdiffSource? source = await _ldiffMetadataProvider.ResolveAsync(
+                game,
+                toManifest.data.tag,
+                matchingField,
+                fromManifest.data.tag,
+                cancellationToken);
+
+            if (source is null)
+            {
+                throw new InvalidOperationException(
+                    $"No native LDiff metadata was found for {game.GameId} " +
+                    $"({matchingField}) {fromManifest.data.tag} → {toManifest.data.tag}.");
+            }
+
+            Logger.Info(
+                $"Loading LDiff manifest. Game={game.GameId}, Package={matchingField}, " +
+                $"From={fromManifest.data.tag}, To={toManifest.data.tag}, URL={source.DiffManifestUrl}");
+
+            byte[] manifestBytes = await DownloadBytesAsync(source.DiffManifestUrl, cancellationToken);
+            SophonPatchManifest patchManifest;
+            try
+            {
+                using MemoryStream direct = new(manifestBytes);
+                patchManifest = Serializer.Deserialize<SophonPatchManifest>(direct);
+                if (patchManifest.Patches.Count == 0)
+                    throw new InvalidDataException("Direct LDiff protobuf was empty.");
+            }
+            catch
+            {
+                byte[] decompressedManifest = DecompressZstd(manifestBytes);
+                using MemoryStream decompressed = new(decompressedManifest);
+                patchManifest = Serializer.Deserialize<SophonPatchManifest>(decompressed);
+            }
+
+            foreach (SophonPatchFile patchFile in patchManifest.Patches)
+            {
+                SophonPatchInfo? patchInfo = patchFile.Patches.FirstOrDefault(x =>
+                    string.Equals(x.Tag, fromManifest.data.tag, StringComparison.OrdinalIgnoreCase));
+
+                if (patchInfo?.Patch is null || string.IsNullOrWhiteSpace(patchInfo.Patch.Id))
+                    continue;
+
+                SophonPatch patch = patchInfo.Patch;
+                string outputFile = BuildPatchArtifactPath(patchFile.File, patch.OriginalFileName);
+
+                var artifact = new SophonChunkFile
+                {
+                    File = outputFile,
+                    IsFolder = false,
+                    Size = patch.PatchFileSize,
+                    Md5 = patch.PatchFileMd5
+                };
+
+                artifact.Chunks.Add(new SophonChunk
+                {
+                    Id = patch.Id,
+                    CompressedSize = patch.PatchFileSize,
+                    CompressedMd5 = patch.PatchFileMd5 ?? string.Empty,
+                    UncompressedSize = patch.PatchFileSize,
+                    UncompressedMd5 = patch.PatchFileMd5 ?? string.Empty,
+                    Offset = 0
+                });
+
+                if (allFiles.Any(x => x.Chunks.Any(c =>
+                        string.Equals(c.Id, patch.Id, StringComparison.OrdinalIgnoreCase))))
+                    continue;
+
+                allFiles.Add(artifact);
+                fileManifest[artifact.File] = Utility.EnsureTrailingSlash(source.DiffListUrl);
+            }
+        }
+
+        if (allFiles.Count == 0)
+            throw new InvalidOperationException(
+                $"No LDiff artifacts were found for {fromManifest.data.tag} → {toManifest.data.tag}.");
+
+        var content = new SophonContentSet
+        {
+            AllFiles = allFiles,
+            FileManifest = fileManifest,
+            SelectedContent = selectedList,
+            IsPatch = true,
+            IsLdiffPatch = true,
+            PatchFromVersion = fromManifest.data.tag,
+            PatchToVersion = toManifest.data.tag
+        };
+
+        _currentContent = content;
+        Logger.Info(
+            $"Sophon LDiff patch loaded. From={content.PatchFromVersion}, To={content.PatchToVersion}, " +
+            $"Files={content.FileCount:N0}, Artifacts={content.UniqueChunkCount:N0}, " +
+            $"Size={Utility.FormatFileSize(content.UniqueCompressedSize)}");
+        return content;
+    }
+
+    private static async Task<byte[]> DownloadBytesAsync(string url, CancellationToken cancellationToken)
+    {
+        using HttpResponseMessage response = await HttpClient.GetAsync(url, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadAsByteArrayAsync(cancellationToken);
+    }
+
+    private static byte[] DecompressZstd(byte[] compressed)
+    {
+        using Decompressor decompressor = new();
+        return decompressor.Unwrap(compressed).ToArray();
+    }
+
+    private static string BuildPatchArtifactPath(string file, string? originalFileName)
+    {
+        string safe = file.Replace('\\', '/').TrimStart('/');
+        return string.IsNullOrWhiteSpace(originalFileName) ? safe : safe + ".hdiff";
     }
 
     public async Task<SophonContentSet> LoadSelectedContentAsync(
@@ -205,6 +343,22 @@ public sealed class SophonDownloadService : IDisposable
 
             Logger.Info($"Starting Sophon chunk download. " + $"Destination={_currentSaveDirectory}, " + $"Concurrency={concurrency}");
 
+            string[] files = content.AllFiles
+                .Where(file => !file.IsFolder && !string.IsNullOrWhiteSpace(file.File))
+                .Select(file => file.File)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+
+            if (files.Length > 0)
+            {
+                const int previewCount = 8;
+                string preview = string.Join(", ", files.Take(previewCount));
+                if (files.Length > previewCount)
+                    preview += $", ... (+{files.Length - previewCount:N0} more)";
+
+                Logger.Info($"Sophon files queued: {files.Length:N0}. Files={preview}");
+            }
+
             try
             {
                 await _downloader.StartDownload(content.AllFiles, content.FileManifest, _currentSaveDirectory, concurrency);
@@ -267,7 +421,7 @@ public sealed class SophonDownloadService : IDisposable
 
             try
             {
-                await _downloader.StartExtraction(content.AllFiles, _currentSaveDirectory, cleanupExtraFiles);
+                await _downloader.StartExtraction(content.AllFiles, _currentSaveDirectory, cleanupExtraFiles, content.IsPatch, content.IsLdiffPatch);
             }
             catch
             {

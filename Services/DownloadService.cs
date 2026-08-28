@@ -1,9 +1,5 @@
-using System.IO;
-using System.Net;
-using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
-using NLog;
 
 namespace SophonDownloader.Services;
 
@@ -75,8 +71,16 @@ public sealed class DownloadService : IDisposable
 
     private readonly object _stateLock = new();
     private TaskCompletionSource<bool> _resumeSource = CreateCompletedSource();
+    private readonly object _aggregateLock = new();
+    private readonly UnifiedTransferMetrics _transferMetrics = new();
+    private readonly Dictionary<int, long> _legacyFileInitialBytes = new();
+    private readonly Dictionary<int, long> _legacyFileTotalBytes = new();
     private bool _isPaused;
     private bool _disposed;
+    private long _legacyCompletedAvailableBytes;
+    private long _legacyCompletedTransferredBytes;
+    private long _legacyKnownTotalBytes;
+    private bool _legacyAllTotalsKnown;
 
     public bool IsPaused
     {
@@ -145,6 +149,9 @@ public sealed class DownloadService : IDisposable
 
         Directory.CreateDirectory(destFolder);
 
+        ResetAggregateLegacyMetrics();
+        await PrepareLegacyAggregateTotalsAsync(urls, destFolder, ct);
+
         Logger.Info($"Legacy download started. Files: {urls.Count:N0}, Destination: {destFolder}");
 
         try
@@ -165,11 +172,16 @@ public sealed class DownloadService : IDisposable
                 {
                     long existingSize = new FileInfo(finalPath).Length;
                     Logger.Info($"Skipping existing file: {fileName} ({existingSize:N0} bytes)");
-                    ReportProgress(fileName, i + 1, urls.Count, existingSize, existingSize, 100, 0, TimeSpan.Zero, progress);
+                    BeginLegacyFile(i + 1, existingSize, existingSize);
+                    ReportLegacyAggregateProgress(fileName, i + 1, urls.Count, existingSize, existingSize, 100, progress, true);
+                    CommitLegacyFile(i + 1, existingSize, existingSize);
                     continue;
                 }
 
-                await DownloadOneAsync(url, finalPath, i + 1, urls.Count, progress, ct);
+                int currentIndex = i + 1;
+                long initialBytes = File.Exists(finalPath) ? new FileInfo(finalPath).Length : 0;
+                BeginLegacyFile(currentIndex, initialBytes, _legacyFileTotalBytes.GetValueOrDefault(currentIndex));
+                await DownloadOneAsync(url, finalPath, currentIndex, urls.Count, progress, ct);
             }
 
             Logger.Info("Legacy download completed successfully.");
@@ -216,7 +228,8 @@ public sealed class DownloadService : IDisposable
             $"Legacy remote file: {fileName}, size: " +
             $"{(totalBytes.HasValue ? $"{totalBytes.Value:N0} bytes" : "unknown")}");
 
-        ReportProgress(fileName, fileIndex, fileCount, 0, totalBytes, 0, 0, null, progress);
+        ReportLegacyAggregateProgress(
+            fileName, fileIndex, fileCount, 0, totalBytes, 0, progress, true);
 
         string? lastOutput = null;
         int exitCode;
@@ -233,18 +246,19 @@ public sealed class DownloadService : IDisposable
                 },
                 ariaProgress =>
                 {
-                    progress.Report(new DownloadProgressInfo
-                    {
-                        BytesReceived = ariaProgress.BytesReceived,
-                        TotalBytes = ariaProgress.TotalBytes ?? totalBytes,
-                        Percent = ariaProgress.Percent ??
-                            CalculatePercent(ariaProgress.BytesReceived, ariaProgress.TotalBytes ?? totalBytes),
-                        SpeedBytesPerSecond = ariaProgress.SpeedBytesPerSecond,
-                        Eta = ariaProgress.Eta,
-                        FileName = fileName,
-                        FileIndex = fileIndex,
-                        FileCount = fileCount
-                    });
+                    long currentTotal = ariaProgress.TotalBytes ?? totalBytes ?? 0;
+                    if (currentTotal > 0)
+                        RegisterLegacyFileTotal(fileIndex, currentTotal);
+
+                    ReportLegacyAggregateProgress(
+                        fileName,
+                        fileIndex,
+                        fileCount,
+                        ariaProgress.BytesReceived,
+                        ariaProgress.TotalBytes ?? totalBytes,
+                        ariaProgress.Percent ?? CalculatePercent(ariaProgress.BytesReceived, ariaProgress.TotalBytes ?? totalBytes),
+                        progress,
+                        false);
                 },
                 ct,
                 Math.Clamp(AppSettingsStore.Load().MaxHttpHandle, 1, 256),
@@ -325,9 +339,9 @@ public sealed class DownloadService : IDisposable
             }
         }
 
-        ReportProgress(
-            fileName, fileIndex, fileCount, downloadedSize, totalBytes
-            ?? downloadedSize, 100, 0, TimeSpan.Zero, progress);
+        ReportLegacyAggregateProgress(
+            fileName, fileIndex, fileCount, downloadedSize, totalBytes ?? downloadedSize, 100, progress, true);
+        CommitLegacyFile(fileIndex, downloadedSize, totalBytes ?? downloadedSize);
 
         Logger.Info($"Legacy file download completed: {fileName} ({downloadedSize:N0} bytes)");
     }
@@ -351,9 +365,11 @@ public sealed class DownloadService : IDisposable
 
         long existingBytes = File.Exists(finalPath) ? new FileInfo(finalPath).Length : 0;
         long? totalBytes = await TryGetRemoteLengthAsync(url, ct);
+        RegisterLegacyFileTotal(fileIndex, totalBytes ?? 0);
+        BeginLegacyFile(fileIndex, existingBytes, totalBytes ?? 0);
 
         Logger.Info($"Starting HTTP download: {fileName}; resume bytes: {existingBytes:N0}");
-        ReportProgress(fileName, fileIndex, fileCount, existingBytes, totalBytes, CalculatePercent(existingBytes, totalBytes), 0, null, progress);
+        ReportLegacyAggregateProgress(fileName, fileIndex, fileCount, existingBytes, totalBytes, CalculatePercent(existingBytes, totalBytes), progress, true);
 
         using var request = new HttpRequestMessage(HttpMethod.Get, url);
         if (existingBytes > 0)
@@ -375,6 +391,13 @@ public sealed class DownloadService : IDisposable
         bool resumeAccepted = existingBytes > 0 && response.StatusCode == HttpStatusCode.PartialContent;
         if (!resumeAccepted)
             existingBytes = 0;
+        SetLegacyFileInitialBytes(fileIndex, existingBytes);
+
+        if (totalBytes is null && response.Content.Headers.ContentLength is long responseLength && responseLength > 0)
+        {
+            totalBytes = resumeAccepted ? existingBytes + responseLength : responseLength;
+            RegisterLegacyFileTotal(fileIndex, totalBytes.Value);
+        }
 
         long downloaded = existingBytes;
         long lastSampleBytes = downloaded;
@@ -414,22 +437,15 @@ public sealed class DownloadService : IDisposable
             double elapsed = (now - lastSample).TotalSeconds;
             if (elapsed >= 0.25)
             {
-                double speed = (downloaded - lastSampleBytes) / elapsed;
-                TimeSpan? eta = speed > 0 && totalBytes.HasValue && totalBytes.Value >= downloaded
-                    ? TimeSpan.FromSeconds((totalBytes.Value - downloaded) / speed)
-                    : null;
-
-                progress.Report(new DownloadProgressInfo
-                {
-                    BytesReceived = downloaded,
-                    TotalBytes = totalBytes,
-                    Percent = CalculatePercent(downloaded, totalBytes),
-                    SpeedBytesPerSecond = (long)Math.Max(0, speed),
-                    Eta = eta,
-                    FileName = fileName,
-                    FileIndex = fileIndex,
-                    FileCount = fileCount
-                });
+                ReportLegacyAggregateProgress(
+                    fileName,
+                    fileIndex,
+                    fileCount,
+                    downloaded,
+                    totalBytes,
+                    CalculatePercent(downloaded, totalBytes),
+                    progress,
+                    false);
 
                 lastSample = now;
                 lastSampleBytes = downloaded;
@@ -445,8 +461,223 @@ public sealed class DownloadService : IDisposable
                 $"The downloaded file size is invalid. Expected {totalBytes.Value} bytes, got {downloaded} bytes.",
                 url, fileName: fileName);
 
-        ReportProgress(fileName, fileIndex, fileCount, downloaded, totalBytes ?? downloaded, 100, 0, TimeSpan.Zero, progress);
+        ReportLegacyAggregateProgress(
+            fileName, fileIndex, fileCount, downloaded, totalBytes ?? downloaded, 100, progress, true);
+        CommitLegacyFile(fileIndex, downloaded, totalBytes ?? downloaded);
         Logger.Info($"HTTP file download completed: {fileName} ({downloaded:N0} bytes)");
+    }
+
+    private void ResetAggregateLegacyMetrics()
+    {
+        lock (_aggregateLock)
+        {
+            _legacyFileInitialBytes.Clear();
+            _legacyFileTotalBytes.Clear();
+            _legacyCompletedAvailableBytes = 0;
+            _legacyCompletedTransferredBytes = 0;
+            _legacyKnownTotalBytes = 0;
+            _legacyAllTotalsKnown = false;
+            _transferMetrics.Reset(0);
+        }
+    }
+
+    private async Task PrepareLegacyAggregateTotalsAsync(
+        IReadOnlyList<string> urls,
+        string destFolder,
+        CancellationToken ct)
+    {
+        bool allKnown = true;
+        long knownTotal = 0;
+
+        for (int i = 0; i < urls.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            string fileName = GetFileName(urls[i]);
+            string finalPath = Path.Combine(destFolder, fileName);
+            long? total = null;
+
+            if (File.Exists(finalPath) && !File.Exists(finalPath + ".aria2"))
+            {
+                long existingSize = new FileInfo(finalPath).Length;
+                total = existingSize;
+            }
+            else
+            {
+                total = await TryGetRemoteLengthAsync(urls[i], ct);
+            }
+
+            lock (_aggregateLock)
+            {
+                int index = i + 1;
+                _legacyFileTotalBytes[index] = total.GetValueOrDefault(0);
+            }
+
+            if (total is > 0)
+            {
+                try
+                {
+                    knownTotal = checked(knownTotal + total.Value);
+                }
+                catch (OverflowException)
+                {
+                    knownTotal = long.MaxValue;
+                }
+            }
+            else
+            {
+                allKnown = false;
+            }
+        }
+
+        lock (_aggregateLock)
+        {
+            _legacyKnownTotalBytes = knownTotal;
+            _legacyAllTotalsKnown = allKnown && urls.Count > 0;
+            _transferMetrics.SetTotalBytes(_legacyAllTotalsKnown ? _legacyKnownTotalBytes : 0);
+        }
+    }
+
+    private void RegisterLegacyFileTotal(int fileIndex, long totalBytes)
+    {
+        if (totalBytes <= 0)
+            return;
+
+        lock (_aggregateLock)
+        {
+            long oldTotal = _legacyFileTotalBytes.GetValueOrDefault(fileIndex);
+            if (oldTotal == totalBytes)
+                return;
+
+            if (oldTotal > 0)
+                _legacyKnownTotalBytes = Math.Max(0, _legacyKnownTotalBytes - oldTotal);
+
+            try
+            {
+                _legacyKnownTotalBytes = checked(_legacyKnownTotalBytes + totalBytes);
+            }
+            catch (OverflowException)
+            {
+                _legacyKnownTotalBytes = long.MaxValue;
+            }
+
+            _legacyFileTotalBytes[fileIndex] = totalBytes;
+            _transferMetrics.SetTotalBytes(_legacyAllTotalsKnown ? _legacyKnownTotalBytes : 0);
+        }
+    }
+
+    private void BeginLegacyFile(int fileIndex, long initialBytes, long totalBytes)
+    {
+        lock (_aggregateLock)
+        {
+            _legacyFileInitialBytes[fileIndex] = Math.Max(0, initialBytes);
+            if (totalBytes > 0)
+                RegisterLegacyFileTotal(fileIndex, totalBytes);
+        }
+    }
+
+    private void SetLegacyFileInitialBytes(int fileIndex, long initialBytes)
+    {
+        lock (_aggregateLock)
+            _legacyFileInitialBytes[fileIndex] = Math.Max(0, initialBytes);
+    }
+
+    private void CommitLegacyFile(int fileIndex, long availableBytes, long totalBytes)
+    {
+        lock (_aggregateLock)
+        {
+            long available = Math.Max(0, availableBytes);
+            long initial = _legacyFileInitialBytes.GetValueOrDefault(fileIndex);
+            long networkTransferred = Math.Max(0, available - initial);
+
+            try
+            {
+                _legacyCompletedAvailableBytes = checked(_legacyCompletedAvailableBytes + available);
+            }
+            catch (OverflowException)
+            {
+                _legacyCompletedAvailableBytes = long.MaxValue;
+            }
+
+            try
+            {
+                _legacyCompletedTransferredBytes = checked(_legacyCompletedTransferredBytes + networkTransferred);
+            }
+            catch (OverflowException)
+            {
+                _legacyCompletedTransferredBytes = long.MaxValue;
+            }
+
+            if (totalBytes > 0)
+                RegisterLegacyFileTotal(fileIndex, totalBytes);
+
+            _legacyFileInitialBytes.Remove(fileIndex);
+        }
+    }
+
+    private void ReportLegacyAggregateProgress(
+        string fileName,
+        int fileIndex,
+        int fileCount,
+        long currentFileAvailableBytes,
+        long? currentFileTotalBytes,
+        double? currentFilePercent,
+        IProgress<DownloadProgressInfo> progress,
+        bool force)
+    {
+        UnifiedTransferMetricsSnapshot metrics;
+        long aggregateAvailable;
+        long aggregateTotal;
+        bool allTotalsKnown;
+        long currentInitialBytes;
+
+        lock (_aggregateLock)
+        {
+            if (currentFileTotalBytes is > 0)
+                RegisterLegacyFileTotal(fileIndex, currentFileTotalBytes.Value);
+
+            currentInitialBytes = _legacyFileInitialBytes.GetValueOrDefault(fileIndex);
+            long currentAvailable = Math.Max(0, currentFileAvailableBytes);
+            long currentTransferred = Math.Max(0, currentAvailable - currentInitialBytes);
+
+            aggregateAvailable = SaturatingAdd(_legacyCompletedAvailableBytes, currentAvailable);
+            long aggregateTransferred = SaturatingAdd(_legacyCompletedTransferredBytes, currentTransferred);
+            allTotalsKnown = _legacyAllTotalsKnown && _legacyKnownTotalBytes > 0;
+            aggregateTotal = allTotalsKnown ? _legacyKnownTotalBytes : 0;
+
+            _transferMetrics.SetTotalBytes(aggregateTotal);
+            metrics = _transferMetrics.Update(
+                aggregateAvailable,
+                aggregateTransferred,
+                force);
+        }
+
+        double? aggregatePercent = aggregateTotal > 0
+            ? Math.Clamp(metrics.AvailableBytes * 100d / aggregateTotal, 0, 100)
+            : currentFilePercent;
+
+        progress.Report(new DownloadProgressInfo
+        {
+            BytesReceived = metrics.AvailableBytes,
+            TotalBytes = aggregateTotal > 0 ? aggregateTotal : currentFileTotalBytes,
+            Percent = aggregatePercent,
+            SpeedBytesPerSecond = (long)Math.Clamp(metrics.SpeedBytesPerSecond, 0, long.MaxValue),
+            Eta = metrics.Eta,
+            FileName = fileName,
+            FileIndex = fileIndex,
+            FileCount = fileCount
+        });
+    }
+
+    private static long SaturatingAdd(long left, long right)
+    {
+        if (right <= 0)
+            return Math.Max(0, left);
+
+        if (left > long.MaxValue - right)
+            return long.MaxValue;
+
+        return left + right;
     }
 
     private async Task TryValidateRemoteResourceAsync(string url, CancellationToken ct)
@@ -671,24 +902,6 @@ public sealed class DownloadService : IDisposable
             return null;
 
         return Math.Clamp(bytesReceived * 100d / totalBytes.Value, 0, 100);
-    }
-
-    private static void ReportProgress(
-        string fileName, int fileIndex, int fileCount, long bytesReceived,
-        long? totalBytes, double? percent, long? speed,
-        TimeSpan? eta, IProgress<DownloadProgressInfo> progress)
-    {
-        progress.Report(new DownloadProgressInfo
-        {
-            BytesReceived = bytesReceived,
-            TotalBytes = totalBytes,
-            Percent = percent,
-            SpeedBytesPerSecond = speed,
-            Eta = eta,
-            FileName = fileName,
-            FileIndex = fileIndex,
-            FileCount = fileCount
-        });
     }
 
     private async Task<long?> TryGetRemoteLengthAsync(

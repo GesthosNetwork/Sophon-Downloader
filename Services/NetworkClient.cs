@@ -1,15 +1,16 @@
-using System.Net;
-using System.Net.Http;
-
 namespace SophonDownloader.Services;
 
 internal static class NetworkClient
 {
+    private static readonly NLog.Logger Logger = NLog.LogManager.GetCurrentClassLogger();
     public static SocketsHttpHandler CreateHandler(AppSettings settings)
     {
+        int maxConnections = Math.Clamp(settings.MaxHttpHandle, 1, 256);
+        Logger.Debug($"Creating HTTP handler. MaxConnectionsPerServer={maxConnections}, ProxyMode={settings.ProxyMode}.");
+
         var handler = new SocketsHttpHandler
         {
-            MaxConnectionsPerServer = Math.Clamp(settings.MaxHttpHandle, 1, 256),
+            MaxConnectionsPerServer = maxConnections,
             UseProxy = !string.Equals(settings.ProxyMode, "Direct", StringComparison.OrdinalIgnoreCase)
         };
 
@@ -53,7 +54,7 @@ internal static class NetworkClient
                 arguments.Add($"--all-proxy={resolved.AbsoluteUri.TrimEnd('/')}");
             }
         }
-        catch { }
+        catch {}
     }
 
     private static string BuildProxyUri(string host, int port)

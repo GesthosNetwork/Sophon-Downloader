@@ -43,6 +43,12 @@ message SophonPatchDeleteFile {
     string md5 = 3;
 }
 
+message SophonPatchManifest {
+    repeated SophonPatchFile patches = 1;
+    repeated SophonPatchDeleteTag delete_tags = 2;
+    int32 compress_mode = 3;
+}
+
 message SophonPatchDeleteFileCollection {
     repeated SophonPatchDeleteFile delete_files = 1;
 }

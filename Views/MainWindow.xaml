@@ -55,6 +55,8 @@
         <SolidColorBrush x:Key="DangerSoftHoverBrush" Color="#FFE4E6"/>
         <SolidColorBrush x:Key="ReloadButtonBackgroundBrush" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="LogoBackgroundBrush" Color="#475569"/>
+        <SolidColorBrush x:Key="GameTextPanelBrush" Color="#D9FFFFFF"/>
+        <SolidColorBrush x:Key="BackgroundScrimBrush" Color="#00000000"/>
         <SolidColorBrush x:Key="HeaderForegroundBrush" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="HeaderMutedBrush" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="HeaderHoverBrush" Color="#334155"/>
@@ -189,6 +191,44 @@
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="NavigationBorder" Property="Opacity" Value=".4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="DownloadButtonStyle" TargetType="Button">
+            <Setter Property="Height" Value="44"/>
+            <Setter Property="Background" Value="{DynamicResource PrimaryButtonBackgroundBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource InverseTextBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Padding" Value="26,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="DownloadButtonBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="Transparent"
+                                BorderThickness="0"
+                                CornerRadius="9">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"
+                                              RecognizesAccessKey="True"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="DownloadButtonBorder" Property="Background" Value="{DynamicResource PrimaryButtonHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="DownloadButtonBorder" Property="Background" Value="{DynamicResource PrimaryButtonPressedBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="DownloadButtonBorder" Property="Opacity" Value=".4"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -468,9 +508,10 @@
             CornerRadius="14"
             SnapsToDevicePixels="True">
 
-        <Border x:Name="RootContentBorder"
+        <Grid x:Name="RootLayoutGrid">
+            <Border x:Name="RootContentBorder"
                 Margin="1"
-                Background="{DynamicResource WindowBackgroundBrush}"
+                Background="Transparent"
                 CornerRadius="13"
                 SnapsToDevicePixels="True">
 
@@ -480,9 +521,22 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
+                <Border x:Name="FullWindowBackgroundBorder"
+                        Grid.RowSpan="2"
+                        Panel.ZIndex="0"
+                        Background="Transparent"
+                        IsHitTestVisible="False"/>
+
+                <Border x:Name="FullWindowScrimBorder"
+                        Grid.RowSpan="2"
+                        Panel.ZIndex="0"
+                        Background="{DynamicResource BackgroundScrimBrush}"
+                        IsHitTestVisible="False"/>
+
                 <Border Grid.Row="0"
-                        Background="{DynamicResource TitleBarBackgroundBrush}"
+                        Background="Transparent"
                         CornerRadius="13,13,0,0"
+                        Panel.ZIndex="1"
                         MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
 
                     <Grid>
@@ -498,7 +552,7 @@
 
                             <TextBlock x:Name="AppTitleText"
                                        Text="SOPHON DOWNLOADER"
-                                       Foreground="{DynamicResource HeaderForegroundBrush}"
+                                       Foreground="{DynamicResource PrimaryTextBrush}"
                                        FontSize="11"
                                        FontWeight="SemiBold"
                                        VerticalAlignment="Center"
@@ -506,7 +560,7 @@
 
                             <TextBlock x:Name="AppVersionText"
                                        Text="• v0.0.0"
-                                       Foreground="{DynamicResource HeaderMutedBrush}"
+                                       Foreground="{DynamicResource SecondaryTextBrush}"
                                        FontSize="10"
                                        FontWeight="Medium"
                                        VerticalAlignment="Center"
@@ -517,25 +571,18 @@
                                     VerticalAlignment="Center"
                                     Orientation="Horizontal">
 
-                            <Border Padding="4,3"
-                                    Background="{DynamicResource InputBackgroundBrush}"
-                                    BorderBrush="{DynamicResource BorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="9">
+                            <StackPanel Orientation="Horizontal">
+                                <Button x:Name="SophonModeButton"
+                                        Content="SOPHON MODE"
+                                        Style="{StaticResource ModeButtonStyle}"
+                                        Click="SophonModeButton_Click"/>
 
-                                <StackPanel Orientation="Horizontal">
-                                    <Button x:Name="SophonModeButton"
-                                            Content="SOPHON MODE"
-                                            Style="{StaticResource ModeButtonStyle}"
-                                            Click="SophonModeButton_Click"/>
-
-                                    <Button x:Name="LegacyModeButton"
-                                            Content="LEGACY MODE"
-                                            Style="{StaticResource ModeButtonStyle}"
-                                            Margin="4,0,0,0"
-                                            Click="LegacyModeButton_Click"/>
-                                </StackPanel>
-                            </Border>
+                                <Button x:Name="LegacyModeButton"
+                                        Content="LEGACY MODE"
+                                        Style="{StaticResource ModeButtonStyle}"
+                                        Margin="4,0,0,0"
+                                        Click="LegacyModeButton_Click"/>
+                            </StackPanel>
 
                             <Button x:Name="ReloadButton"
                                     Content="⟳"
@@ -564,7 +611,8 @@
                     </Grid.ColumnDefinitions>
 
                     <Border x:Name="SidebarBorder" Grid.Column="0"
-                            Background="{DynamicResource PanelStrongBrush}"
+                            Panel.ZIndex="1"
+                            Background="Transparent"
                             BorderBrush="{DynamicResource BorderBrush}"
                             BorderThickness="0,0,1,0"
                             Padding="12,18">
@@ -674,7 +722,7 @@
                         </Grid>
                     </Border>
 
-                    <Grid Grid.Column="1">
+                    <Grid Grid.Column="1" Panel.ZIndex="1">
                         <Rectangle Fill="Transparent"/>
 
                         <local:DownloadsView x:Name="DownloadsView"
@@ -706,8 +754,12 @@
                             </Grid.RowDefinitions>
 
                             <Grid>
-                                <StackPanel VerticalAlignment="Center"
-                                            Width="600">
+                                <Border VerticalAlignment="Center"
+                                        HorizontalAlignment="Left"
+                                        Background="{DynamicResource GameTextPanelBrush}"
+                                        CornerRadius="16"
+                                        Padding="22,18,22,20">
+                                    <StackPanel Width="600">
 
                                     <TextBlock x:Name="LegacyGameTitleText"
                                                Foreground="{DynamicResource PrimaryTextBrush}"
@@ -757,17 +809,18 @@
                                             </DataTemplate>
                                         </ComboBox.ItemTemplate>
                                     </ComboBox>
-                                </StackPanel>
+                                    </StackPanel>
+                                </Border>
 
                                 <StackPanel HorizontalAlignment="Right"
                                             VerticalAlignment="Center"
                                             Width="285">
 
-                                    <Border BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="1"
+                                    <Border BorderBrush="Transparent"
+                                            BorderThickness="0"
                                             CornerRadius="16"
                                             Padding="18"
-                                            Background="{DynamicResource PanelBackgroundBrush}">
+                                            Background="{DynamicResource GameTextPanelBrush}">
 
                                         <StackPanel>
                                             <TextBlock Text="DOWNLOAD TYPE"
@@ -838,7 +891,7 @@
                                                        FontWeight="Medium"
                                                        Margin="2,7,0,0"/>
 
-                                            <TextBlock Text="SAVE TO"
+                                            <TextBlock x:Name="SophonDestinationLabel" Text="SAVE TO"
                                                        Foreground="{DynamicResource LabelBrush}"
                                                        FontSize="11"
                                                        FontWeight="SemiBold"
@@ -908,21 +961,17 @@
                                 </StackPanel>
                             </Grid>
 
-                            <Border Grid.Row="1"
-                                    Background="{DynamicResource PanelStrongBackgroundBrush}"
-                                    BorderBrush="{DynamicResource BorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="14"
-                                    Padding="18"
-                                    Margin="0,20,0,0">
-
-                                <StackPanel HorizontalAlignment="Right"
-                                            Orientation="Horizontal">
+                            <StackPanel Grid.Row="1"
+                                        HorizontalAlignment="Right"
+                                        Orientation="Horizontal"
+                                        Margin="0,20,0,0">
 
                                     <Button x:Name="LegacyDownloadButton"
                                             Content="DOWNLOAD"
                                             Width="150"
-                                            Style="{StaticResource PrimaryButtonStyle}"
+                                            BorderThickness="0"
+                                            BorderBrush="Transparent"
+                                            Style="{StaticResource DownloadButtonStyle}"
                                             Click="LegacyDownloadButton_Click"
                                             Margin="0,0,8,0"/>
 
@@ -933,7 +982,6 @@
                                             Style="{StaticResource SecondaryButtonStyle}"
                                             Click="LegacyExplorerButton_Click"/>
                                 </StackPanel>
-                            </Border>
                         </Grid>
 
                         <Grid x:Name="SophonView"
@@ -946,8 +994,12 @@
                             </Grid.RowDefinitions>
 
                             <Grid>
-                                <StackPanel VerticalAlignment="Center"
-                                            Width="600">
+                                <Border VerticalAlignment="Center"
+                                        HorizontalAlignment="Left"
+                                        Background="{DynamicResource GameTextPanelBrush}"
+                                        CornerRadius="16"
+                                        Padding="22,18,22,20">
+                                    <StackPanel Width="600">
 
                                     <TextBlock x:Name="SophonGameTitleText"
                                                Text="Sophon"
@@ -977,6 +1029,22 @@
                                         </ComboBox.ItemTemplate>
                                     </ComboBox>
 
+                                    <TextBlock Text="DOWNLOAD MODE"
+                                               Foreground="{DynamicResource LabelBrush}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"
+                                               Margin="0,14,0,8"/>
+
+                                    <ComboBox x:Name="SophonDownloadModeComboBox"
+                                              Width="380"
+                                              HorizontalAlignment="Left"
+                                              Style="{StaticResource TransparentComboBoxStyle}"
+                                              ItemContainerStyle="{StaticResource TransparentComboBoxItemStyle}"
+                                              SelectionChanged="SophonDownloadModeComboBox_SelectionChanged">
+                                        <ComboBoxItem Content="Full Download" IsSelected="True"/>
+                                        <ComboBoxItem Content="Patch Download"/>
+                                    </ComboBox>
+
                                     <TextBlock Text="VERSION"
                                                Foreground="{DynamicResource LabelBrush}"
                                                FontSize="11"
@@ -989,17 +1057,34 @@
                                               Style="{StaticResource TransparentComboBoxStyle}"
                                               ItemContainerStyle="{StaticResource TransparentComboBoxItemStyle}"
                                               SelectionChanged="SophonVersionComboBox_SelectionChanged"/>
-                                </StackPanel>
+
+                                    <StackPanel x:Name="SophonPatchSourcePanel"
+                                                Visibility="Collapsed">
+                                        <TextBlock Text="FROM VERSION"
+                                                   Foreground="{DynamicResource LabelBrush}"
+                                                   FontSize="11"
+                                                   FontWeight="SemiBold"
+                                                   Margin="0,14,0,8"/>
+
+                                        <ComboBox x:Name="SophonFromVersionComboBox"
+                                                  Width="380"
+                                                  HorizontalAlignment="Left"
+                                                  Style="{StaticResource TransparentComboBoxStyle}"
+                                                  ItemContainerStyle="{StaticResource TransparentComboBoxItemStyle}"
+                                                  SelectionChanged="SophonFromVersionComboBox_SelectionChanged"/>
+                                    </StackPanel>
+                                    </StackPanel>
+                                </Border>
 
                                 <StackPanel HorizontalAlignment="Right"
                                             VerticalAlignment="Center"
                                             Width="285">
 
-                                    <Border BorderBrush="{DynamicResource BorderBrush}"
-                                            BorderThickness="1"
+                                    <Border BorderBrush="Transparent"
+                                            BorderThickness="0"
                                             CornerRadius="16"
                                             Padding="18"
-                                            Background="{DynamicResource PanelBackgroundBrush}">
+                                            Background="{DynamicResource GameTextPanelBrush}">
 
                                         <StackPanel>
                                             <TextBlock Text="CHANNEL"
@@ -1129,21 +1214,17 @@
                                 </StackPanel>
                             </Grid>
 
-                            <Border Grid.Row="1"
-                                    Background="{DynamicResource PanelStrongBackgroundBrush}"
-                                    BorderBrush="{DynamicResource BorderBrush}"
-                                    BorderThickness="1"
-                                    CornerRadius="14"
-                                    Padding="18"
-                                    Margin="0,20,0,0">
-
-                                <StackPanel HorizontalAlignment="Right"
-                                            Orientation="Horizontal">
+                            <StackPanel Grid.Row="1"
+                                        HorizontalAlignment="Right"
+                                        Orientation="Horizontal"
+                                        Margin="0,20,0,0">
 
                                     <Button x:Name="SophonDownloadButton"
                                             Content="DOWNLOAD"
                                             Width="150"
-                                            Style="{StaticResource PrimaryButtonStyle}"
+                                            BorderThickness="0"
+                                            BorderBrush="Transparent"
+                                            Style="{StaticResource DownloadButtonStyle}"
                                             Click="SophonDownloadButton_Click"
                                             Margin="0,0,8,0"/>
 
@@ -1154,42 +1235,9 @@
                                             Style="{StaticResource SecondaryButtonStyle}"
                                             Click="SophonExplorerButton_Click"/>
                                 </StackPanel>
-                            </Border>
                         </Grid>
 
-                        <Border x:Name="StartupOverlay"
-                                Panel.ZIndex="100"
-                                Background="{DynamicResource WindowBackgroundBrush}"
-                                Opacity="0.96">
-                            <StackPanel HorizontalAlignment="Center"
-                                        VerticalAlignment="Center"
-                                        Width="820">
-                                <TextBlock x:Name="StartupLoadingTitle"
-                                           Text="Initializing SophonDownloader..."
-                                           HorizontalAlignment="Center"
-                                           FontSize="22"
-                                           FontWeight="SemiBold"
-                                           Foreground="{DynamicResource PrimaryTextBrush}"/>
-                                <TextBlock x:Name="StartupLoadingStatus"
-                                           Text="Preparing application startup..."
-                                           HorizontalAlignment="Center"
-                                           Margin="0,14,0,10"
-                                           FontSize="13"
-                                           Foreground="{DynamicResource SecondaryTextBrush}"/>
-                                <Border Width="750"
-                                        Height="8"
-                                        Background="{DynamicResource SurfaceBrush}"
-                                        CornerRadius="8"
-                                        ClipToBounds="True">
-                                    <ProgressBar Height="8"
-                                                 Minimum="0"
-                                                 Maximum="100"
-                                                 IsIndeterminate="True"
-                                                 BorderThickness="0"
-                                                 Background="Transparent"/>
-                                </Border>
-                            </StackPanel>
-                        </Border>
+
 
                         <TextBlock x:Name="CopyrightTextBlock"
                                    HorizontalAlignment="Right"
@@ -1199,9 +1247,54 @@
                                    FontSize="14"
                                    FontWeight="Medium"
                                    Opacity=".85"/>
+
                     </Grid>
+
+
                 </Grid>
+
+
             </Grid>
         </Border>
+
+        <Border x:Name="StartupOverlay"
+                Panel.ZIndex="1000"
+                Background="{DynamicResource WindowBackgroundBrush}"
+                Opacity="0.96"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                CornerRadius="14"
+                ClipToBounds="True">
+            <Grid HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <StackPanel x:Name="StartupLoadingPanel"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Width="820"
+                            RenderTransformOrigin="0.5,0.5">
+                    <StackPanel.RenderTransform>
+                        <ScaleTransform x:Name="StartupLoadingScaleTransform" ScaleX="1" ScaleY="1"/>
+                    </StackPanel.RenderTransform>
+                    <TextBlock x:Name="StartupLoadingTitle"
+                               Text="Initializing SophonDownloader..."
+                               HorizontalAlignment="Center"
+                               FontSize="22"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    <TextBlock x:Name="StartupLoadingStatus"
+                               Text="Preparing application startup..."
+                               HorizontalAlignment="Center"
+                               Margin="0,14,0,10"
+                               FontSize="13"
+                               Foreground="{DynamicResource SecondaryTextBrush}"/>
+                    <Border Width="750" Height="8" HorizontalAlignment="Center"
+                            Background="{DynamicResource SurfaceBrush}"
+                            CornerRadius="8" ClipToBounds="True">
+                        <ProgressBar Height="8" Minimum="0" Maximum="100" IsIndeterminate="True"
+                                     Background="Transparent" BorderThickness="0" Foreground="{DynamicResource PrimaryTextBrush}"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+        </Border>
+        </Grid>
     </Border>
 </Window>

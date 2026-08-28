@@ -1,6 +1,7 @@
 # Sophon Downloader
 
-An advanced tool for downloading game assets using the Sophon-based content delivery system.
+An advanced tool for downloading game assets through the Sophon-based content delivery system.  
+Downloads assets only, not the game launcher.
 
 
 ## Requirements

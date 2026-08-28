@@ -1,11 +1,64 @@
-using NLog;
 using System.Reflection;
-using System.Windows;
+using System.Runtime.InteropServices;
 
 namespace SophonDownloader;
 
 public partial class App : Application
 {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AllocConsole();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool FreeConsole();
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr GetConsoleWindow();
+
+    internal static void ApplyLogLevel(string level)
+    {
+        try
+        {
+            LogManager.GlobalThreshold = NLog.LogLevel.FromString(string.IsNullOrWhiteSpace(level) ? "Debug" : level);
+        }
+        catch (Exception ex)
+        {
+            LogManager.GlobalThreshold = NLog.LogLevel.Debug;
+            try { Logger.Warn(ex, "Failed to apply configured log level; falling back to Debug."); } catch { }
+        }
+    }
+
+    internal static void ApplyConsoleSetting(bool enabled)
+    {
+        try
+        {
+            bool shown = GetConsoleWindow() != IntPtr.Zero;
+            if (enabled && !shown)
+            {
+                if (!AllocConsole())
+                    throw new InvalidOperationException("AllocConsole failed.");
+
+                Console.Title = "SophonDownloader Diagnostics";
+                Console.SetOut(new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true });
+                Console.SetError(new StreamWriter(Console.OpenStandardError()) { AutoFlush = true });
+                LogManager.ReconfigExistingLoggers();
+                Logger.Info("Diagnostic console enabled.");
+                Logger.Debug("Console output stream attached and NLog loggers reconfigured.");
+            }
+            else if (!enabled && shown)
+            {
+                Logger.Info("Diagnostic console disabled.");
+                LogManager.Flush();
+                FreeConsole();
+                Console.SetOut(TextWriter.Null);
+                Console.SetError(TextWriter.Null);
+            }
+        }
+        catch (Exception ex)
+        {
+            try { Logger.Warn(ex, "Failed to apply Show Console setting."); } catch { }
+        }
+    }
+
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
     public static string Version { get; } = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0.0.0";
     internal static string Copyright { get; } =
@@ -16,7 +69,10 @@ public partial class App : Application
         try
         {
             LogManager.Setup().LoadConfigurationFromAssemblyResource(Assembly.GetExecutingAssembly());
-            Logger.Info($"SophonDownloader starting. Version {Version}");
+            AppSettings startupSettings = AppSettingsStore.Load();
+            ApplyLogLevel(startupSettings.LogLevel);
+            ApplyConsoleSetting(startupSettings.ShowConsole);
+            Logger.Info($"SophonDownloader starting. Version {Version}. CPU={Environment.ProcessorCount}, DefaultThreads={ConcurrencyDefaults.Threads}, DefaultHttpConnections={ConcurrencyDefaults.MaxHttpConnections}, LogLevel={startupSettings.LogLevel}.");
             DispatcherUnhandledException += App_DispatcherUnhandledException;
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
             TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;

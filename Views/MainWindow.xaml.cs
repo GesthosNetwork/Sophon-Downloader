@@ -1,16 +1,10 @@
-using System.IO;
-using System.Net.Http;
-using System.Net.NetworkInformation;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Threading;
 using Microsoft.Win32;
+using System.Net.NetworkInformation;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using SophonDownloader.Models;
 using SophonDownloader.Services;
 using SophonDownloader.Utilities;
-using NLog;
 
 namespace SophonDownloader;
 
@@ -23,6 +17,7 @@ public partial class MainWindow : Window
 
     private enum DownloaderMode { Legacy, Sophon }
     private enum LegacyDownloadMode { Full, Update }
+    private enum SophonDownloadMode { Full, Patch }
     private enum MainPage { Dashboard, Downloads, Settings, Updates, About, License }
 
     private readonly LegacyManifestService _legacyManifestService = new();
@@ -38,10 +33,16 @@ public partial class MainWindow : Window
     private LegacyManifest _legacyManifest = new();
     private DownloaderMode _mode = DownloaderMode.Sophon;
     private LegacyDownloadMode _legacyDownloadMode = LegacyDownloadMode.Full;
+    private SophonDownloadMode _sophonDownloadMode = SophonDownloadMode.Full;
+    private List<string> _sophonVersions = [];
     private MainPage _currentPage = MainPage.Dashboard;
     private GameInfo? _currentSophonGame;
     private List<SophonContentOption> _sophonContentOptions = [];
     private List<LegacyContentOption> _legacyContentOptions = [];
+
+    private AppSettings? _lastSettingsSnapshot;
+    private string? _lastAppliedLogLevel;
+    private bool? _lastAppliedShowConsole;
 
     private bool _initializing;
     private bool _legacyManifestLoading;
@@ -68,7 +69,11 @@ public partial class MainWindow : Window
         SizeChanged += MainWindow_SizeChanged;
 
         SettingsView.SettingsChanged += SettingsView_SettingsChanged;
-        ApplySettingsTheme(AppSettingsStore.Load());
+        AppSettings initialSettings = AppSettingsStore.Load();
+        ApplySettingsTheme(initialSettings);
+        _lastAppliedLogLevel = initialSettings.LogLevel;
+        _lastAppliedShowConsole = initialSettings.ShowConsole;
+        _lastSettingsSnapshot = initialSettings;
 
         Logger.Info("MainWindow initialized.");
     }
@@ -81,7 +86,71 @@ public partial class MainWindow : Window
 
     private void StatusFromSettings(AppSettings settings)
     {
-        Logger.Info($"Settings changed. Theme={settings.ThemePalette}/{settings.ThemeMode}, Aria2c={settings.UseAria2c}, Threads={settings.Threads}, MaxHttpHandle={settings.MaxHttpHandle}, DownloadMode={settings.DownloadMode}, SpeedLimitKbps={settings.SpeedLimitKbps}.");
+        AppSettings? previous = _lastSettingsSnapshot;
+
+        if (previous is null || !string.Equals(previous.ThemePalette, settings.ThemePalette, StringComparison.OrdinalIgnoreCase) ||
+            !string.Equals(previous.ThemeMode, settings.ThemeMode, StringComparison.OrdinalIgnoreCase))
+        {
+            Logger.Debug($"Theme changed to {settings.ThemePalette}/{settings.ThemeMode}.");
+        }
+
+        if (previous is null || !string.Equals(previous.FontFamily, settings.FontFamily, StringComparison.OrdinalIgnoreCase))
+            Logger.Debug("Font changed.");
+
+        if (previous is null || previous.UseAria2c != settings.UseAria2c)
+            Logger.Debug($"Aria2c changed to {(settings.UseAria2c ? "Enabled" : "Disabled")}.");
+
+        if (previous is null || !string.Equals(previous.DownloadMode, settings.DownloadMode, StringComparison.OrdinalIgnoreCase))
+            Logger.Debug($"Download mode changed to {settings.DownloadMode}.");
+
+        if (previous is null || previous.Threads != settings.Threads)
+            Logger.Debug($"Threads changed to {settings.Threads}.");
+
+        if (previous is null || previous.MaxHttpHandle != settings.MaxHttpHandle)
+            Logger.Debug($"HTTP connection limit changed to {settings.MaxHttpHandle}.");
+
+        if (previous is null || previous.SpeedLimitKbps != settings.SpeedLimitKbps)
+            Logger.Debug($"Speed limit changed to {(settings.SpeedLimitKbps > 0 ? $"{settings.SpeedLimitKbps} KB/s" : "Unlimited")}.");
+
+        if (previous is null || !string.Equals(previous.ProxyMode, settings.ProxyMode, StringComparison.OrdinalIgnoreCase))
+            Logger.Debug($"Proxy mode changed to {settings.ProxyMode}.");
+
+        if (previous is null || !string.Equals(previous.ProxyHost, settings.ProxyHost, StringComparison.Ordinal))
+            Logger.Debug($"Proxy host changed to \"{settings.ProxyHost}\".");
+
+        if (previous is null || previous.ProxyPort != settings.ProxyPort)
+            Logger.Debug($"Proxy port changed to \"{settings.ProxyPort}\".");
+
+        if (previous is null || !string.Equals(previous.Dns, settings.Dns, StringComparison.Ordinal))
+            Logger.Debug($"DNS server changed to \"{settings.Dns}\".");
+
+        if (previous is null || !string.Equals(previous.BackgroundImagePath, settings.BackgroundImagePath, StringComparison.Ordinal))
+            Logger.Debug($"Background image {(string.IsNullOrWhiteSpace(settings.BackgroundImagePath) ? "cleared" : "changed")}.");
+
+        if (previous is null || previous.ShowConsole != settings.ShowConsole)
+        {
+            App.ApplyConsoleSetting(settings.ShowConsole);
+            Logger.Info($"Show Console changed to {(settings.ShowConsole ? "On" : "Off")}.");
+            _lastAppliedShowConsole = settings.ShowConsole;
+        }
+
+        if (previous is null || !string.Equals(previous.LogLevel, settings.LogLevel, StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                LogManager.GlobalThreshold = NLog.LogLevel.Debug;
+                Logger.Info($"Log level changed to \"{settings.LogLevel}\".");
+            }
+            catch (Exception ex)
+            {
+                try { Logger.Warn(ex, "Failed to record log-level change event."); } catch {}
+            }
+
+            App.ApplyLogLevel(settings.LogLevel);
+            _lastAppliedLogLevel = settings.LogLevel;
+        }
+
+        _lastSettingsSnapshot = settings;
     }
 
     private void ApplySettingsTheme(AppSettings settings)
@@ -91,10 +160,42 @@ public partial class MainWindow : Window
         SetMainPage(_currentPage);
     }
 
-    internal void ApplyThemeSurfaces(string background, string surface)
+    internal void ApplyThemeSurfaces(string background, string surface, string? backgroundImagePath = null)
     {
-        RootContentBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(background));
-        SidebarBorder.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString(surface));
+        Brush backgroundBrush = CreateBackgroundBrush(background, backgroundImagePath);
+        FullWindowBackgroundBorder.Background = backgroundBrush;
+        RootContentBorder.Background = Brushes.Transparent;
+        SidebarBorder.Background = Brushes.Transparent;
+    }
+
+    private static Brush CreateBackgroundBrush(string background, string? imagePath)
+    {
+        if (!string.IsNullOrWhiteSpace(imagePath) && File.Exists(imagePath))
+        {
+            try
+            {
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.UriSource = new Uri(imagePath, UriKind.Absolute);
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+                image.EndInit();
+                image.Freeze();
+                var brush = new ImageBrush(image)
+                {
+                    Stretch = Stretch.UniformToFill,
+                    AlignmentX = AlignmentX.Center,
+                    AlignmentY = AlignmentY.Center
+                };
+                brush.Freeze();
+                return brush;
+            }
+            catch (Exception ex)
+            {
+                Logger.Warn(ex, $"Unable to load background image: {imagePath}");
+            }
+        }
+        return new SolidColorBrush((Color)ColorConverter.ConvertFromString(background));
     }
 
     
@@ -138,14 +239,23 @@ public partial class MainWindow : Window
 
         const double radius = 13;
         RootContentBorder.Clip = new RectangleGeometry(
-            new Rect(0, 0, RootContentBorder.ActualWidth, RootContentBorder.ActualHeight),
-            radius,
-            radius);
+            new Rect(0, 0, RootContentBorder.ActualWidth, RootContentBorder.ActualHeight), radius, radius);
     }
 
     private void MainWindow_Closed(object? sender, EventArgs e)
     {
-        Logger.Info("MainWindow closing. Shutting down download queue.");
+        Logger.Info("MainWindow closing. Flushing pending settings before shutdown.");
+
+        try
+        {
+            SettingsView.FlushPendingAutoSave();
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to flush pending settings during shutdown.");
+        }
+
+        Logger.Info("Settings flushed. Shutting down download queue.");
 
         NetworkChange.NetworkAvailabilityChanged -= NetworkAvailabilityChanged;
         _connectivityTimer.Stop();
@@ -176,7 +286,7 @@ public partial class MainWindow : Window
         {
             _connectivityClient.Dispose();
         }
-        catch { }
+        catch {}
 
         try
         {
@@ -204,7 +314,6 @@ public partial class MainWindow : Window
     private void CheckForUpdatesButton_Click(object sender, RoutedEventArgs e) => SetMainPage(MainPage.Updates);
     private void AboutButton_Click(object sender, RoutedEventArgs e) => SetMainPage(MainPage.About);
     private void LicenseButton_Click(object sender, RoutedEventArgs e) => SetMainPage(MainPage.License);
-
 
     private void ApplyNavigationState(Button button, bool active)
     {
@@ -236,9 +345,66 @@ public partial class MainWindow : Window
 
     private void ReloadButton_Click(object sender, RoutedEventArgs e) => _ = ReloadCurrentModeAsync();
 
+    private async Task ShowReloadOverlayAsync()
+    {
+        StartupLoadingTitle.Text = "Reloading SophonDownloader...";
+        StartupLoadingStatus.Text = "Refreshing remote game manifest...";
+
+        StartupOverlay.Visibility = Visibility.Visible;
+        StartupOverlay.BeginAnimation(UIElement.OpacityProperty, null);
+        StartupLoadingScaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+        StartupLoadingScaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+
+        await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+
+        StartupOverlay.Opacity = 0.0;
+        StartupLoadingScaleTransform.ScaleX = 0.96;
+        StartupLoadingScaleTransform.ScaleY = 0.96;
+
+        var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var fadeIn = new DoubleAnimation(0.0, 0.96, TimeSpan.FromMilliseconds(260))
+        {
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        var scaleInX = new DoubleAnimation(0.96, 1.0, TimeSpan.FromMilliseconds(320))
+        {
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+        var scaleInY = new DoubleAnimation(0.96, 1.0, TimeSpan.FromMilliseconds(320))
+        {
+            EasingFunction = easing,
+            FillBehavior = FillBehavior.HoldEnd
+        };
+
+        StartupOverlay.BeginAnimation(UIElement.OpacityProperty, fadeIn);
+        StartupLoadingScaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, scaleInX);
+        StartupLoadingScaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, scaleInY);
+        await Task.Delay(330);
+    }
+
+    private async Task HideReloadOverlayAsync()
+    {
+        var easing = new CubicEase { EasingMode = EasingMode.EaseIn };
+        var fadeOut = new DoubleAnimation(0.96, 0.0, TimeSpan.FromMilliseconds(180))
+        {
+            EasingFunction = easing
+        };
+
+        StartupOverlay.BeginAnimation(UIElement.OpacityProperty, fadeOut);
+        await Task.Delay(190);
+        StartupOverlay.BeginAnimation(UIElement.OpacityProperty, null);
+        StartupOverlay.Opacity = 0.96;
+        StartupOverlay.Visibility = Visibility.Collapsed;
+        StartupLoadingTitle.Text = "Initializing SophonDownloader...";
+        StartupLoadingStatus.Text = "Preparing application startup...";
+    }
+
     private async Task ReloadCurrentModeAsync()
     {
         ReloadButton.IsEnabled = false;
+        await ShowReloadOverlayAsync();
 
         try
         {
@@ -263,6 +429,7 @@ public partial class MainWindow : Window
         }
         finally
         {
+            await HideReloadOverlayAsync();
             ReloadButton.IsEnabled = !_legacyManifestLoading;
         }
     }
@@ -377,7 +544,7 @@ public partial class MainWindow : Window
             {
                 return false;
             }
-            catch { }
+            catch {}
         }
 
         return false;
@@ -797,9 +964,7 @@ public partial class MainWindow : Window
 
     private void UpdateLegacyExplorerVisibility()
     {
-        if (!IsInitialized ||
-            _mode != DownloaderMode.Legacy ||
-            _legacyDownloadMode != LegacyDownloadMode.Full)
+        if (!IsInitialized || _mode != DownloaderMode.Legacy)
         {
             LegacyExplorerButton.Visibility = Visibility.Collapsed;
             return;
@@ -810,6 +975,11 @@ public partial class MainWindow : Window
             : null;
 
         bool visible = version is not null && GetSelectedLegacyContentOptions().Count > 0;
+
+        if (_legacyDownloadMode == LegacyDownloadMode.Update)
+            visible &= LegacyFromVersionComboBox.SelectedItem is string sourceVersion &&
+                       !string.IsNullOrWhiteSpace(sourceVersion);
+
         LegacyExplorerButton.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -1035,14 +1205,8 @@ public partial class MainWindow : Window
         return urls;
     }
 
-    private async void LegacyExplorerButton_Click(object sender, RoutedEventArgs e)
+    private void LegacyExplorerButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_legacyDownloadMode != LegacyDownloadMode.Full)
-        {
-            Warn("Legacy Explore is available for Full Download only.", "Legacy Explore");
-            return;
-        }
-
         if (GameComboBox.SelectedItem is not GameOption game)
         {
             Warn("Please select a game.", "Legacy Explore");
@@ -1071,6 +1235,26 @@ public partial class MainWindow : Window
             return;
         }
 
+        string? fromVersion = null;
+
+        if (_legacyDownloadMode == LegacyDownloadMode.Update)
+        {
+            if (LegacyFromVersionComboBox.SelectedItem is not string sourceVersion ||
+                string.IsNullOrWhiteSpace(sourceVersion))
+            {
+                Warn("Please select the source version.", "Legacy Explore");
+                return;
+            }
+
+            if (ManifestResolver.CompareVersions(sourceVersion, versionText) >= 0)
+            {
+                Warn("The source version must be older than the target version.", "Legacy Explore");
+                return;
+            }
+
+            fromVersion = sourceVersion;
+        }
+
         var archives = new List<LegacyExplorerArchive>();
         string? archiveUrl = null;
 
@@ -1078,9 +1262,19 @@ public partial class MainWindow : Window
         {
             if (option.IsGame)
             {
-                List<string> urls = (ManifestResolver.GetGameFullUrls(version) ?? [])
-                    .Where(ManifestResolver.HasValidUrl)
-                    .ToList();
+                List<string> urls;
+
+                if (_legacyDownloadMode == LegacyDownloadMode.Update)
+                {
+                    string url = ManifestResolver.BuildGameUpdateUrl(version, fromVersion!);
+                    urls = ManifestResolver.HasValidUrl(url) ? [url] : [];
+                }
+                else
+                {
+                    urls = (ManifestResolver.GetGameFullUrls(version) ?? [])
+                        .Where(ManifestResolver.HasValidUrl)
+                        .ToList();
+                }
 
                 if (urls.Count > 0)
                 {
@@ -1095,7 +1289,20 @@ public partial class MainWindow : Window
 
             try
             {
-                voiceUrl = ManifestResolver.BuildFullVoiceUrl(version, option.Code);
+                if (_legacyDownloadMode == LegacyDownloadMode.Update)
+                {
+                    if (version.Update.TryGetValue(fromVersion!, out LegacyUpdate? update) &&
+                        update is not null &&
+                        update.Voice.TryGetValue(option.Code, out LegacyPackage? package) &&
+                        package is not null)
+                    {
+                        voiceUrl = package.Url;
+                    }
+                }
+                else
+                {
+                    voiceUrl = ManifestResolver.BuildFullVoiceUrl(version, option.Code);
+                }
             }
             catch
             {
@@ -1105,7 +1312,7 @@ public partial class MainWindow : Window
             if (!ManifestResolver.HasValidUrl(voiceUrl))
                 continue;
 
-            archives.Add(new LegacyExplorerArchive($"voice:{option.Code}", option.Name, [voiceUrl!]));
+            archives.Add(new LegacyExplorerArchive($"voice:{option.Code}", option.Name, [voiceUrl]));
             archiveUrl ??= voiceUrl;
         }
 
@@ -1123,22 +1330,22 @@ public partial class MainWindow : Window
             return;
         }
 
-        string archiveFolderName = GetLegacyExploreFolderName(
-            archiveUrl,
-            $"{GetLegacyFolderGameName(game)}_{versionText}");
+        string fallbackFolderName = _legacyDownloadMode == LegacyDownloadMode.Update && !string.IsNullOrWhiteSpace(fromVersion)
+            ? $"{GetLegacyFolderGameName(game)}_{fromVersion}-{versionText}"
+            : $"{GetLegacyFolderGameName(game)}_{versionText}";
 
+        string archiveFolderName = GetLegacyExploreFolderName(archiveUrl, fallbackFolderName);
         string archiveDirectory = Path.Combine(baseDestination, archiveFolderName);
+        string title = _legacyDownloadMode == LegacyDownloadMode.Update && !string.IsNullOrWhiteSpace(fromVersion)
+            ? $"{game.Name ?? string.Empty} {fromVersion} → {versionText} (Update)"
+            : $"{game.Name ?? string.Empty} {versionText}";
 
         try
         {
             ReloadButton.IsEnabled = false;
 
             var explorer = new LegacyExplorerWindow(
-                this,
-                $"{game.Name ?? string.Empty} {versionText}",
-                version,
-                archives,
-                archiveDirectory);
+                this, title, version, archives, archiveDirectory);
 
             explorer.ShowDialog();
         }
@@ -1155,8 +1362,7 @@ public partial class MainWindow : Window
 
     private static string GetLegacyExploreFolderName(string? url, string fallback)
     {
-        if (string.IsNullOrWhiteSpace(url) ||
-            !Uri.TryCreate(url, UriKind.Absolute, out Uri? uri))
+        if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out Uri? uri))
             return fallback;
 
         string fileName = uri.Segments
@@ -1195,8 +1401,7 @@ public partial class MainWindow : Window
         string displayName = game.DisplayName ?? "Game";
 
         return SophonFolderNames.GetValueOrDefault(
-            gameId,
-            SanitizeFolderName(displayName));
+            gameId, SanitizeFolderName(displayName));
     }
 
     private static readonly Dictionary<string, string> SophonFolderNames = new()
@@ -1246,10 +1451,7 @@ public partial class MainWindow : Window
             SophonContentSummaryText.Text = "Loading manifest...";
 
             ManifestConfig manifest = await _sophonDownloadService.LoadManifestAsync(
-                _currentSophonGame,
-                version,
-                GetSophonChannel(),
-                ct);
+                _currentSophonGame, version, GetSophonChannel(), ct);
 
             ct.ThrowIfCancellationRequested();
 
@@ -1298,11 +1500,96 @@ public partial class MainWindow : Window
             await RefreshSophonSelectionAsync();
     }
 
+    private async void SophonDownloadModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsInitialized || _mode != DownloaderMode.Sophon) return;
+        _sophonDownloadMode = SophonDownloadModeComboBox.SelectedIndex == 1
+            ? SophonDownloadMode.Patch
+            : SophonDownloadMode.Full;
+        UpdateSophonVersionModeFilter();
+        UpdateSophonPatchSourceVersions();
+        UpdateSophonDefaultDestination();
+        await RefreshSophonManifestAsync();
+    }
+
+    private void SophonFromVersionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (!IsInitialized || _mode != DownloaderMode.Sophon) return;
+        UpdateSophonDefaultDestination();
+    }
+
+    private void UpdateSophonPatchSourceVersions()
+    {
+        if (_sophonDownloadMode != SophonDownloadMode.Patch ||
+            _currentSophonGame is null ||
+            SophonVersionComboBox.SelectedItem is not string target ||
+            !IsSophonPatchTargetAllowed(_currentSophonGame, target))
+        {
+            SophonFromVersionComboBox.ItemsSource = null;
+            SophonFromVersionComboBox.SelectedIndex = -1;
+            SophonPatchSourcePanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        int limit = GetSophonPatchSourceVersionLimit(_currentSophonGame);
+        List<string> candidates = _sophonVersions
+            .Where(v => !string.Equals(v, target, StringComparison.OrdinalIgnoreCase))
+            .Where(v => ManifestResolver.CompareVersions(v, target) < 0)
+            .OrderByDescending(v => v, Comparer<string>.Create(ManifestResolver.CompareVersions))
+            .Take(limit)
+            .ToList();
+
+        SophonFromVersionComboBox.ItemsSource = candidates;
+        SophonFromVersionComboBox.SelectedIndex = candidates.Count > 0 ? 0 : -1;
+        SophonPatchSourcePanel.Visibility = candidates.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void UpdateSophonVersionModeFilter()
+    {
+        List<string> visible = _sophonVersions;
+        string? selected = SophonVersionComboBox.SelectedItem as string;
+
+        if (_sophonDownloadMode == SophonDownloadMode.Patch && _currentSophonGame is not null)
+        {
+            visible = _sophonVersions
+                .Where(v => IsSophonPatchTargetAllowed(_currentSophonGame, v))
+                .ToList();
+        }
+
+        SophonVersionComboBox.ItemsSource = visible;
+
+        if (selected is not null && visible.Contains(selected, StringComparer.OrdinalIgnoreCase))
+            SophonVersionComboBox.SelectedItem = selected;
+        else
+            SophonVersionComboBox.SelectedIndex = visible.Count > 0 ? 0 : -1;
+    }
+
+    private static int GetSophonPatchSourceVersionLimit(GameInfo game)
+    {
+        return game.GameId.StartsWith("hkrpg_", StringComparison.OrdinalIgnoreCase) ? 1 : 2;
+    }
+
+    private bool IsSophonPatchTargetAllowed(GameInfo game, string targetVersion)
+    {
+        List<string> fullVersions = _sophonVersions
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(v => v, Comparer<string>.Create(ManifestResolver.CompareVersions))
+            .ToList();
+
+        if (fullVersions.Count < 2)
+            return false;
+
+        string minimumPatchTarget = fullVersions[1];
+        return ManifestResolver.CompareVersions(targetVersion, minimumPatchTarget) >= 0;
+    }
+
     private async void SophonVersionComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (!IsInitialized || _mode != DownloaderMode.Sophon)
             return;
 
+        UpdateSophonPatchSourceVersions();
         UpdateSophonDefaultDestination();
         await RefreshSophonManifestAsync();
     }
@@ -1394,15 +1681,18 @@ public partial class MainWindow : Window
         if (!IsInitialized || _mode != DownloaderMode.Sophon)
             return;
 
-        SophonVersionComboBox.ItemsSource = versions;
+        _sophonVersions = versions.ToList();
+        UpdateSophonVersionModeFilter();
+        UpdateSophonPatchSourceVersions();
 
-        if (versions.Count == 0)
+        if (_sophonVersions.Count == 0 || SophonVersionComboBox.Items.Count == 0)
         {
-            SophonContentSummaryText.Text = "No version available.";
+            SophonContentSummaryText.Text = _sophonDownloadMode == SophonDownloadMode.Patch
+                ? "No eligible patch target version available."
+                : "No version available.";
             return;
         }
 
-        SophonVersionComboBox.SelectedIndex = 0;
         UpdateSophonDefaultDestination();
         await RefreshSophonManifestAsync();
     }
@@ -1416,7 +1706,12 @@ public partial class MainWindow : Window
             return;
 
         string game = GetSophonFolderGameName(_currentSophonGame);
-        SophonDestinationTextBox.Text = Path.Combine(Utility.GetApplicationDirectory(), $"{game}_{version}");
+        string folderName = _sophonDownloadMode == SophonDownloadMode.Patch
+            && SophonFromVersionComboBox.SelectedItem is string fromVersion
+            && !string.IsNullOrWhiteSpace(fromVersion)
+            ? $"{game}_{fromVersion}-{version}"
+            : $"{game}_{version}";
+        SophonDestinationTextBox.Text = Path.Combine(Utility.GetApplicationDirectory(), folderName);
     }
 
     private void SophonContentCheckBox_Changed(object sender, RoutedEventArgs e)
@@ -1472,16 +1767,30 @@ public partial class MainWindow : Window
             GameInfo game = _currentSophonGame;
             List<SophonContentOption> selectedContent = selected.ToList();
 
+            string? patchFromVersion = _sophonDownloadMode == SophonDownloadMode.Patch
+                ? SophonFromVersionComboBox.SelectedItem as string
+                : null;
+
+            if (_sophonDownloadMode == SophonDownloadMode.Patch && string.IsNullOrWhiteSpace(patchFromVersion))
+            {
+                Warn("Please select the source version for the patch download.", "Sophon Explorer");
+                return;
+            }
+
             var explorer = new SophonExplorerWindow(
                 this,
-                $"{game.DisplayName ?? string.Empty} {version}",
+                _sophonDownloadMode == SophonDownloadMode.Patch
+                    ? $"{game.DisplayName ?? string.Empty} {patchFromVersion} → {version} (Patch)"
+                    : $"{game.DisplayName ?? string.Empty} {version}",
                 async () =>
                 {
-                    ManifestConfig manifest = await ResolveSophonManifestAsync(game, version, channel);
+                    ManifestConfig targetManifest = await ResolveSophonManifestAsync(game, version, channel);
+                    if (_sophonDownloadMode != SophonDownloadMode.Patch)
+                        return await _sophonDownloadService.LoadSelectedContentAsync(targetManifest, selectedContent);
 
-                    return await _sophonDownloadService.LoadSelectedContentAsync(
-                        manifest,
-                        selectedContent);
+                    ManifestConfig fromManifest = await _sophonDownloadService.LoadManifestAsync(game, patchFromVersion!, channel);
+                    return await _sophonDownloadService.LoadSelectedPatchContentAsync(
+                        game, fromManifest, targetManifest, selectedContent);
                 });
 
             explorer.ShowDialog();
@@ -1550,14 +1859,33 @@ public partial class MainWindow : Window
                 !string.Equals(manifest.data.tag, version, StringComparison.OrdinalIgnoreCase))
                 manifest = null;
 
+            string? patchFromVersion = null;
+            if (_sophonDownloadMode == SophonDownloadMode.Patch)
+            {
+                if (!IsSophonPatchTargetAllowed(_currentSophonGame, version))
+                {
+                    Warn("Patch Download is not available for this target version.", "Sophon Patch");
+                    return;
+                }
+
+                patchFromVersion = SophonFromVersionComboBox.SelectedItem as string;
+                List<string> allowedSources = _sophonVersions
+                    .Where(v => ManifestResolver.CompareVersions(v, version) < 0)
+                    .OrderByDescending(v => v, Comparer<string>.Create(ManifestResolver.CompareVersions))
+                    .Take(GetSophonPatchSourceVersionLimit(_currentSophonGame))
+                    .ToList();
+
+                if (string.IsNullOrWhiteSpace(patchFromVersion) ||
+                    !allowedSources.Contains(patchFromVersion, StringComparer.OrdinalIgnoreCase))
+                {
+                    Warn("Please select a valid source version for the patch download.", "Sophon Patch");
+                    return;
+                }
+            }
+
             DownloadsView.AddSophonDownload(
-                _currentSophonGame,
-                version,
-                GetSophonChannel(),
-                selected,
-                destination,
-                true,
-                manifest);
+                _currentSophonGame, version, GetSophonChannel(), selected, destination,
+                true, manifest, patchFromVersion);
 
             SetMainPage(MainPage.Downloads);
         }

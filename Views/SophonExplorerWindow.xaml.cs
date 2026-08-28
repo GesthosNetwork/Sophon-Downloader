@@ -1,6 +1,3 @@
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
 using SophonDownloader.Models;
 using SophonDownloader.Services;
 using SophonDownloader.Utilities;
@@ -52,6 +49,12 @@ public partial class SophonExplorerWindow : Window
 
             _content = content;
             _explorerContentLoaded = true;
+            if (content.IsPatch)
+            {
+                DownloadSelectedButton.Content = "DOWNLOAD PATCH";
+                ExplorerDeleteChunksCheckBox.Visibility = Visibility.Collapsed;
+                SummaryText.Text = $"PATCH DOWNLOAD • {content.PatchFromVersion} → {content.PatchToVersion}";
+            }
 
             BuildTree();
             UpdateSelectionSummary();
@@ -145,7 +148,6 @@ public partial class SophonExplorerWindow : Window
             AddFile(_roots, file);
 
         SortNodes(_roots);
-
         ExplorerTree.ItemsSource = _roots;
 
         int fileCount = _content.AllFiles.Count(x => !x.IsFolder);
@@ -271,7 +273,6 @@ public partial class SophonExplorerWindow : Window
         foreach (SophonExplorerNode node in nodes)
         {
             yield return node;
-
             foreach (SophonExplorerNode child in Flatten(node.Children))
                 yield return child;
         }
@@ -370,19 +371,14 @@ public partial class SophonExplorerWindow : Window
 
         if (string.IsNullOrWhiteSpace(saveDirectory))
         {
-            MessageBox.Show(
-                "Please choose a Sophon save folder first.",
-                "Sophon Explorer",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
+            MessageBox.Show("Please choose a Sophon save folder first.", "Sophon Explorer", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
         List<SophonChunkFile> selectedFiles = selected
             .Select(node => _content.AllFiles.First(
                 file => string.Equals(
-                    NormalizePath(file.File),
-                    NormalizePath(node.FullPath),
+                    NormalizePath(file.File), NormalizePath(node.FullPath),
                     StringComparison.OrdinalIgnoreCase)))
             .ToList();
 
@@ -420,6 +416,15 @@ public partial class SophonExplorerWindow : Window
             if (_cancelRequested)
                 return;
 
+            if (_content.IsPatch)
+            {
+                DownloadProgressBar.Value = 100;
+                DownloadProgressText.Text = "100%";
+                DownloadSpeedText.Text = "--";
+                DownloadStatusText.Text = "Patch chunks downloaded.";
+                return;
+            }
+
             DownloadStatusText.Text = "Reconstructing selected assets...";
             DownloadProgressBar.Value = 0;
             DownloadProgressText.Text = "0%";
@@ -451,18 +456,13 @@ public partial class SophonExplorerWindow : Window
 
             if (!_cancelRequested)
             {
-                MessageBox.Show(
-                    $"Unable to download selected assets:\n\n{ex.Message}",
-                    "Sophon Explorer",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
+                MessageBox.Show($"Unable to download selected assets:\n\n{ex.Message}", "Sophon Explorer", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
         finally
         {
             _downloadRunning = false;
             _cancelRequested = false;
-
             SetDownloadIdleState();
             UpdateSelectionSummary();
         }
@@ -509,10 +509,7 @@ public partial class SophonExplorerWindow : Window
         ClearSelectionButton.IsEnabled = _explorerContentLoaded;
         ExplorerTree.IsEnabled = _explorerContentLoaded;
         ExplorerDeleteChunksCheckBox.IsEnabled = _explorerContentLoaded;
-        DownloadSelectedButton.IsEnabled =
-            _explorerContentLoaded &&
-            !_downloadRunning &&
-            GetSelectedFiles().Count > 0;
+        DownloadSelectedButton.IsEnabled = _explorerContentLoaded && !_downloadRunning && GetSelectedFiles().Count > 0;
 
         DownloadProgressBar.Visibility = Visibility.Collapsed;
         DownloadSpeedText.Visibility = Visibility.Collapsed;
@@ -541,11 +538,7 @@ public partial class SophonExplorerWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(
-                $"Unable to change download state.\n\n{ex.Message}",
-                "Sophon Explorer",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+            MessageBox.Show($"Unable to change download state.\n\n{ex.Message}", "Sophon Explorer", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
@@ -564,9 +557,7 @@ public partial class SophonExplorerWindow : Window
         {
             _downloadService.Cancel();
         }
-        catch
-        {
-        }
+        catch {}
     }
 
     private void UpdateChunkProgress(ChunkDownloadProgress progress)
@@ -627,8 +618,6 @@ public partial class SophonExplorerWindow : Window
     }
 
     private static string NormalizePath(string path) => path.Replace('\\', '/');
-
-
 
     protected override void OnClosed(EventArgs e)
     {

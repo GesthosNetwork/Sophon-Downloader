@@ -86,7 +86,7 @@
                         <Run Text=" — BSD-3-Clause."/>
                         <LineBreak/>
 
-                        <Hyperlink NavigateUri="https://github.com/dotnet/efcore"
+                        <Hyperlink NavigateUri="https://github.com/dotnet/efcore/tree/main/src/Microsoft.Data.Sqlite"
                                    RequestNavigate="Hyperlink_RequestNavigate">Microsoft.Data.Sqlite</Hyperlink>
                         <Run Text=" — MIT."/>
                     </TextBlock>

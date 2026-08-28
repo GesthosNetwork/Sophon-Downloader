@@ -1,6 +1,4 @@
-using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using System.Windows.Media;
 using SophonDownloader.Utilities;
 
 namespace SophonDownloader.Models;

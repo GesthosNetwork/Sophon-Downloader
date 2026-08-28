@@ -1,10 +1,4 @@
-using System.Diagnostics;
-using System.IO;
-using System.Linq;
-using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Text.Json;
-using System.Windows;
 using SharpCompress.Archives.SevenZip;
 
 namespace SophonDownloader.Services;
@@ -73,9 +67,15 @@ public sealed class ApplicationUpdateService
             ?? throw new InvalidOperationException("Unable to determine the application directory.");
 
         string executableName = Path.GetFileName(executablePath);
-        string packagePath = Path.Combine(installDirectory, update.FileName);
-        string replacementPath = Path.Combine(installDirectory, $".update-{Guid.NewGuid():N}.exe");
-        string updaterPath = Path.Combine(installDirectory, $".update-{Guid.NewGuid():N}.bat");
+        string updateRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"SophonDownloader-Update-{Guid.NewGuid():N}");
+        string packagePath = Path.Combine(updateRoot, update.FileName);
+        string stagingDirectory = Path.Combine(updateRoot, "staging");
+        string updaterPath = Path.Combine(updateRoot, "apply-update.bat");
+
+        Directory.CreateDirectory(updateRoot);
+        Directory.CreateDirectory(stagingDirectory);
 
         try
         {
@@ -88,17 +88,24 @@ public sealed class ApplicationUpdateService
                 throw new InvalidDataException($"Unsupported update package format: {extension}. Only .7z packages are supported.");
             }
 
-            string? packageExecutable = await ExtractSevenZipDirectlyAsync(
+            string? packageExecutable = await ExtractSevenZipToStagingAsync(
                 packagePath,
-                installDirectory,
+                stagingDirectory,
                 executableName,
-                replacementPath,
                 cancellationToken);
 
-            if (string.IsNullOrWhiteSpace(packageExecutable) ||
-                !File.Exists(replacementPath))
+            if (string.IsNullOrWhiteSpace(packageExecutable))
             {
                 throw new InvalidDataException($"The downloaded update package does not contain a unique application executable that can replace {executableName}.");
+            }
+
+            string stagedExecutablePath = GetSafeDestinationPath(
+                stagingDirectory,
+                packageExecutable);
+
+            if (!File.Exists(stagedExecutablePath))
+            {
+                throw new InvalidDataException($"The staged update does not contain the application executable {packageExecutable}.");
             }
 
             File.WriteAllText(
@@ -115,32 +122,28 @@ public sealed class ApplicationUpdateService
                 Arguments =
                     $"/d /c \"\"{updaterPath}\" " +
                     $"\"{Environment.ProcessId}\" " +
-                    $"\"{replacementPath}\" " +
-                    $"\"{packagePath}\" " +
+                    $"\"{stagingDirectory}\" " +
                     $"\"{installDirectory}\" " +
                     $"\"{executableName}\"\"",
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden,
-                WorkingDirectory = installDirectory
+                WorkingDirectory = updateRoot
             });
         }
         catch
         {
-            TryDeleteFile(replacementPath);
-            TryDeleteFile(updaterPath);
-            TryDeleteFile(packagePath);
+            TryDeleteDirectory(updateRoot);
             throw;
         }
 
         Application.Current.Shutdown();
     }
 
-    private static async Task<string?> ExtractSevenZipDirectlyAsync(
+    private static async Task<string?> ExtractSevenZipToStagingAsync(
         string packagePath,
-        string installDirectory,
+        string stagingDirectory,
         string executableName,
-        string replacementPath,
         CancellationToken cancellationToken)
     {
         List<string> paths;
@@ -164,9 +167,9 @@ public sealed class ApplicationUpdateService
             relativePaths,
             executableName);
 
-        using var secondArchive = SevenZipArchive.Open(packagePath);
+        using var archiveToExtract = SevenZipArchive.Open(packagePath);
 
-        foreach (var entry in secondArchive.Entries)
+        foreach (var entry in archiveToExtract.Entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -180,27 +183,19 @@ public sealed class ApplicationUpdateService
                 continue;
 
             string destination = GetSafeDestinationPath(
-                installDirectory,
+                stagingDirectory,
                 relativePath);
-
-            if (packageExecutable is not null &&
-                relativePath.Equals(
-                    packageExecutable,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                destination = replacementPath;
-            }
 
             Directory.CreateDirectory(
                 Path.GetDirectoryName(destination)
-                ?? installDirectory);
+                ?? stagingDirectory);
 
             await using Stream source = entry.OpenEntryStream();
             await using FileStream target = new(
                 destination,
                 FileMode.Create,
                 FileAccess.Write,
-                FileShare.None,
+                FileShare.Read,
                 128 * 1024,
                 true);
 
@@ -336,12 +331,10 @@ public sealed class ApplicationUpdateService
 
                 request.Headers.Accept.Clear();
                 request.Headers.Accept.Add(
-                    new MediaTypeWithQualityHeaderValue(
-                        "application/octet-stream"));
+                    new MediaTypeWithQualityHeaderValue("application/octet-stream"));
 
                 if (url.StartsWith(
-                    "https://api.github.com/",
-                    StringComparison.OrdinalIgnoreCase))
+                    "https://api.github.com/", StringComparison.OrdinalIgnoreCase))
                 {
                     request.Headers.Add(
                         "X-GitHub-Api-Version", "2022-11-28");
@@ -414,13 +407,10 @@ public sealed class ApplicationUpdateService
         };
 
         client.DefaultRequestHeaders.UserAgent.Add(
-            new ProductInfoHeaderValue(
-                "SophonDownloader",
-                App.Version));
+            new ProductInfoHeaderValue("SophonDownloader", App.Version));
 
         client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue(
-                "application/vnd.github+json"));
+            new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 
         client.DefaultRequestHeaders.Add(
             "X-GitHub-Api-Version", "2022-11-28");
@@ -432,8 +422,7 @@ public sealed class ApplicationUpdateService
         JsonElement assets)
     {
         var candidates = assets
-            .EnumerateArray()
-            .Select(asset =>
+            .EnumerateArray().Select(asset =>
             {
                 string name = asset.GetProperty("name").GetString() ?? string.Empty;
                 string browserUrl = asset.GetProperty("browser_download_url").GetString() ?? string.Empty;
@@ -447,18 +436,15 @@ public sealed class ApplicationUpdateService
             })
             .Where(asset =>
                 asset.name.EndsWith(
-                    ".7z",
-                    StringComparison.OrdinalIgnoreCase))
+                    ".7z", StringComparison.OrdinalIgnoreCase))
             .Where(asset =>
                 !asset.name.Contains(
-                    "source",
-                    StringComparison.OrdinalIgnoreCase))
+                    "source", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
         var sevenZip = candidates.FirstOrDefault(asset =>
             asset.name.EndsWith(
-                ".7z",
-                StringComparison.OrdinalIgnoreCase));
+                ".7z", StringComparison.OrdinalIgnoreCase));
 
         return string.IsNullOrWhiteSpace(sevenZip.browserUrl)
             ? null
@@ -474,48 +460,58 @@ public sealed class ApplicationUpdateService
     }
 
     private static string BuildUpdateScript() => """
-setlocal
+setlocal EnableExtensions
 
 set "ProcessId=%~1"
-set "Replacement=%~2"
-set "Package=%~3"
-set "InstallDirectory=%~4"
-set "Executable=%~5"
+set "StagingDirectory=%~2"
+set "InstallDirectory=%~3"
+set "Executable=%~4"
 set "Updater=%~f0"
+set "Robocopy=%SystemRoot%\System32\robocopy.exe"
+set "TaskList=%SystemRoot%\System32\tasklist.exe"
+set "Find=%SystemRoot%\System32\find.exe"
+set "Timeout=%SystemRoot%\System32\timeout.exe"
+
+if not exist "%StagingDirectory%\%Executable%" goto failed
 
 :wait
-%SystemRoot%\System32\tasklist.exe /FI "PID eq %ProcessId%" /NH 2>nul | %SystemRoot%\System32\find.exe "%ProcessId%" >nul
+"%TaskList%" /FI "PID eq %ProcessId%" /NH 2>nul | "%Find%" "%ProcessId%" >nul
 if not errorlevel 1 (
-    %SystemRoot%\System32\timeout.exe /t 1 /nobreak >nul
+    "%Timeout%" /t 1 /nobreak >nul
     goto wait
 )
 
-if not exist "%Replacement%" goto failed
+:copy
+"%Robocopy%" "%StagingDirectory%" "%InstallDirectory%" /E /COPY:DAT /DCOPY:DAT /R:10 /W:1 /XJ /NFL /NDL /NJH /NJS /NP >nul
+set "CopyExitCode=%ERRORLEVEL%"
 
-copy /Y "%Replacement%" "%InstallDirectory%\%Executable%" >nul
-if errorlevel 1 goto failed
-
-del /F /Q "%Replacement%" >nul 2>&1
-del /F /Q "%Package%" >nul 2>&1
+if %CopyExitCode% GEQ 8 (
+    "%Timeout%" /t 1 /nobreak >nul
+    goto copy
+)
 
 start "" /D "%InstallDirectory%" "%InstallDirectory%\%Executable%"
 
-%SystemRoot%\System32\timeout.exe /t 2 /nobreak >nul
+"%Timeout%" /t 2 /nobreak >nul
+rmdir /S /Q "%StagingDirectory%" >nul 2>&1
+for %%D in ("%StagingDirectory%\..") do rmdir /S /Q "%%~fD" >nul 2>&1
+
 del /F /Q "%Updater%" >nul 2>&1
 exit /b 0
 
 :failed
+"%Timeout%" /t 2 /nobreak >nul
 exit /b 1
 """;
 
-    private static void TryDeleteFile(string path)
+    private static void TryDeleteDirectory(string path)
     {
         try
         {
-            if (File.Exists(path))
-                File.Delete(path);
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
         }
-        catch {}
+        catch { }
     }
 }
 

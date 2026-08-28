@@ -12,8 +12,7 @@ public sealed class LegacyContentOption : INotifyPropertyChanged
 
     public bool IsSelected
     {
-        get => _isSelected;
-        set
+        get => _isSelected; set
         {
             if (_isSelected == value) return;
             _isSelected = value;

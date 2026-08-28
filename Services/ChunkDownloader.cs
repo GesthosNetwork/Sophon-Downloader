@@ -1,18 +1,7 @@
-using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
-using System.IO;
-using System.Net;
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
 using SophonDownloader;
 using SophonDownloader.Core;
 using SophonDownloader.Models;
 using SophonDownloader.Utilities;
-using NLog;
 
 namespace SophonDownloader.Services;
 
@@ -37,10 +26,6 @@ public sealed class ChunkDownloader : IDisposable
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
     private const int MaxRetryCount = 3;
     private const int BufferSize = 1024 * 1024;
-    private const double SmoothingFactor = 0.20;
-    private const long AggregateSpeedSampleIntervalMilliseconds = 250;
-    private const long AggregateSpeedWindowMilliseconds = 5000;
-    private const long AggregateSpeedResetMilliseconds = 3500;
 
     private readonly CancellationTokenSource _cancellationTokenSource = new();
     private readonly HttpClient _http;
@@ -54,8 +39,6 @@ public sealed class ChunkDownloader : IDisposable
         };
     }
     private readonly object _pauseLock = new();
-    private readonly object _speedLock = new();
-    private readonly Queue<(long Time, long Bytes)> _speedSamples = new();
     private TaskCompletionSource<bool> _resumeSignal = CreateCompletedSignal();
     private readonly ConcurrentDictionary<string, byte> _activeChunks = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, long> _partialChunkBytes = new(StringComparer.OrdinalIgnoreCase);
@@ -73,8 +56,7 @@ public sealed class ChunkDownloader : IDisposable
     private long _downloadedBytes;
     private long _cachedBytes;
     private long _lastProgressPublishTime;
-    private long _lastSpeedSampleTime;
-    private double _smoothedSpeedBytesPerSecond;
+    private readonly UnifiedTransferMetrics _transferMetrics = new();
 
     public Action<ChunkDownloadProgress>? ProgressUpdateCallback { get; set; }
     public Action<string>? StatusTextCallback { get; set; }
@@ -176,10 +158,7 @@ public sealed class ChunkDownloader : IDisposable
         _downloadedBytes = 0;
         _cachedBytes = 0;
         _lastProgressPublishTime = Environment.TickCount64;
-        _lastSpeedSampleTime = _lastProgressPublishTime;
-        _smoothedSpeedBytesPerSecond = 0;
-
-        lock (_speedLock) _speedSamples.Clear();
+        _transferMetrics.Reset(_totalBytes);
 
         _activeChunks.Clear();
         _partialChunkBytes.Clear();
@@ -351,6 +330,7 @@ public sealed class ChunkDownloader : IDisposable
         }
 
         string url = Utility.EnsureTrailingSlash(urlPrefix) + chunk.Id;
+        Logger.Debug($"Downloading chunk. Chunk={chunk.Id}, Size={Utility.FormatFileSize(chunk.CompressedSize)}, URL={url}");
         Exception? lastException = null;
         int attempt = 1;
 
@@ -560,6 +540,7 @@ public sealed class ChunkDownloader : IDisposable
 
             using HttpResponseMessage response = await _http.SendAsync(
                 request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            Logger.Debug($"HTTP chunk response. Chunk={chunk.Id}, Status={(int)response.StatusCode}, ResumeRequested={existingBytes > 0}, ContentLength={response.Content.Headers.ContentLength?.ToString() ?? "unknown"}.");
 
             if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.PartialContent)
             {
@@ -693,76 +674,14 @@ public sealed class ChunkDownloader : IDisposable
 
     private void PublishAria2Progress() => PublishAggregateProgress("Downloading chunks...", false);
 
-    private double UpdateAggregateSpeed(long currentTime)
-    {
-        long downloadedBytes = Interlocked.Read(ref _downloadedBytes);
-
-        lock (_speedLock)
-        {
-            _speedSamples.Enqueue((currentTime, downloadedBytes));
-
-            while (_speedSamples.Count > 1 && currentTime - _speedSamples.Peek().Time > AggregateSpeedWindowMilliseconds)
-                _speedSamples.Dequeue();
-
-            _lastSpeedSampleTime = currentTime;
-
-            if (_speedSamples.Count >= 2)
-            {
-                var oldest = _speedSamples.Peek();
-                long elapsedMilliseconds = currentTime - oldest.Time;
-                long byteDelta = downloadedBytes - oldest.Bytes;
-
-                if (elapsedMilliseconds >= 1000 && byteDelta > 0)
-                {
-                    double rawSpeed = byteDelta * 1000d / elapsedMilliseconds;
-
-                    if (rawSpeed > 0 && !double.IsNaN(rawSpeed) && !double.IsInfinity(rawSpeed))
-                    {
-                        _smoothedSpeedBytesPerSecond = _smoothedSpeedBytesPerSecond <= 0
-                            ? rawSpeed
-                            : _smoothedSpeedBytesPerSecond * (1d - SmoothingFactor) + rawSpeed * SmoothingFactor;
-                    }
-                }
-            }
-
-            if (_speedSamples.Count > 0)
-            {
-                long latestMovementTime = _speedSamples.Reverse().First().Time;
-
-                if (currentTime - latestMovementTime >= AggregateSpeedResetMilliseconds)
-                    _smoothedSpeedBytesPerSecond = 0;
-            }
-
-            return Math.Max(0, _smoothedSpeedBytesPerSecond);
-        }
-    }
-
-    private TimeSpan? CalculateAggregateEta(double aggregateSpeedBytesPerSecond, long remainingBytes)
-    {
-        if (remainingBytes <= 0) return TimeSpan.Zero;
-
-        if (aggregateSpeedBytesPerSecond <= 0 ||
-            double.IsNaN(aggregateSpeedBytesPerSecond) ||
-            double.IsInfinity(aggregateSpeedBytesPerSecond))
-            return null;
-
-        double totalSeconds = remainingBytes / aggregateSpeedBytesPerSecond;
-
-        if (double.IsNaN(totalSeconds) || double.IsInfinity(totalSeconds) || totalSeconds < 0)
-            return null;
-
-        return TimeSpan.FromSeconds(Math.Min(totalSeconds, TimeSpan.MaxValue.TotalSeconds));
-    }
-
     private void PublishAggregateProgress(string status, bool force)
     {
         long currentTime = Environment.TickCount64;
         long previousPublishTime = Interlocked.Read(ref _lastProgressPublishTime);
 
-        if (!force && currentTime - previousPublishTime < AggregateSpeedSampleIntervalMilliseconds)
+        if (!force && currentTime - previousPublishTime < 250)
             return;
 
-        double aggregateSpeed = UpdateAggregateSpeed(currentTime);
         Interlocked.Exchange(ref _lastProgressPublishTime, currentTime);
 
         int completedChunks = Volatile.Read(ref _completedChunks);
@@ -771,8 +690,12 @@ public sealed class ChunkDownloader : IDisposable
         long cachedBytes = Interlocked.Read(ref _cachedBytes);
         long partialCacheBytes = _partialChunkBytes.Values.Sum();
         long availableBytes = Math.Clamp(cachedBytes + partialCacheBytes, 0, _totalBytes);
-        long remainingBytes = Math.Max(0, _totalBytes - availableBytes);
-        TimeSpan? aggregateEta = CalculateAggregateEta(aggregateSpeed, remainingBytes);
+
+        UnifiedTransferMetricsSnapshot metrics = _transferMetrics.Update(
+            availableBytes,
+            downloadedBytes,
+            force);
+
         string actualStatus = _isPaused ? "Download paused." : status;
 
         var progress = new ChunkDownloadProgress
@@ -784,10 +707,10 @@ public sealed class ChunkDownloader : IDisposable
             DownloadedBytes = downloadedBytes,
             CachedBytes = cachedBytes,
             PartialCacheBytes = partialCacheBytes,
-            AvailableBytes = availableBytes,
-            AggregateSpeedBytesPerSecond = aggregateSpeed,
-            AggregateEta = aggregateEta,
-            CurrentSpeed = Utility.FormatSpeed(aggregateSpeed),
+            AvailableBytes = metrics.AvailableBytes,
+            AggregateSpeedBytesPerSecond = metrics.SpeedBytesPerSecond,
+            AggregateEta = metrics.Eta,
+            CurrentSpeed = Utility.FormatSpeed(metrics.SpeedBytesPerSecond),
             StatusText = actualStatus
         };
 
@@ -930,9 +853,6 @@ public sealed class ChunkDownloader : IDisposable
 
         lock (_pauseLock)
             _resumeSignal.TrySetResult(true);
-
-        lock (_speedLock)
-            _speedSamples.Clear();
 
         try { _cancellationTokenSource.Dispose(); }
         catch { }

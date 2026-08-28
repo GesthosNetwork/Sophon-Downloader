@@ -1,12 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
 using SophonDownloader.Models;
 using SophonDownloader.Services;
 using SophonDownloader.Utilities;
@@ -15,6 +6,7 @@ namespace SophonDownloader;
 
 public partial class DownloadsView : UserControl
 {
+    private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
     private readonly List<QueueItem> _items = [];
     private bool _historyLoaded;
     private bool _shuttingDown;
@@ -100,7 +92,8 @@ public partial class DownloadsView : UserControl
         IReadOnlyList<SophonContentOption> selectedContent,
         string destinationDirectory,
         bool deleteChunksAfterExtraction,
-        ManifestConfig? manifest = null)
+        ManifestConfig? manifest = null,
+        string? patchFromVersion = null)
     {
         ArgumentNullException.ThrowIfNull(game);
         if (_shuttingDown) return;
@@ -118,9 +111,14 @@ public partial class DownloadsView : UserControl
             .Select(option => new SophonContentOption(option.Category) { IsSelected = true })
             .ToList();
 
+        bool isPatch = !string.IsNullOrWhiteSpace(patchFromVersion);
+        string title = isPatch
+            ? $"{game.DisplayName} • {patchFromVersion} → {version}"
+            : $"{game.DisplayName} {version}";
+
         var item = new QueueItem(
             QueueItemType.Sophon,
-            $"{game.DisplayName} {version}",
+            title,
             destinationDirectory,
             [],
             game,
@@ -136,6 +134,7 @@ public partial class DownloadsView : UserControl
             .ToList();
 
         item.Manifest = manifest;
+        item.PatchFromVersion = patchFromVersion;
 
         AddItem(item);
         _ = RunSophonDownloadAsync(item);
@@ -184,7 +183,9 @@ public partial class DownloadsView : UserControl
 
         var typeText = new TextBlock
         {
-            Text = item.Type == QueueItemType.Sophon ? "SOPHON" : "LEGACY",
+            Text = item.Type == QueueItemType.Sophon
+                ? (item.IsPatch ? "SOPHON PATCH DOWNLOAD" : "SOPHON FULL DOWNLOAD")
+                : "LEGACY",
             FontSize = 9,
             FontWeight = FontWeights.SemiBold
         };
@@ -374,7 +375,13 @@ public partial class DownloadsView : UserControl
             Margin = new Thickness(0, 0, 10, 0),
             Tag = "Extract"
         };
-        extractButton.Click += (_, _) => ExtractItem(item);
+        extractButton.Click += (_, _) =>
+        {
+            if (item.RequiresSophonRepair)
+                RepairSophonItem(item);
+            else
+                ExtractItem(item);
+        };
 
         var cancelButton = new Button
         {
@@ -390,6 +397,7 @@ public partial class DownloadsView : UserControl
             Width = 34,
             Height = 34,
             Style = (Style)FindResource("QueueRemoveButtonStyle"),
+            Margin = new Thickness(8, 0, 0, 0),
             Visibility = Visibility.Collapsed,
             ToolTip = "Remove from queue",
             Tag = "Remove"
@@ -566,7 +574,11 @@ public partial class DownloadsView : UserControl
                 if (!IsCurrentSophonOperation(item, operationGeneration)) return;
 
                 item.SophonChunksReady = true;
-                item.SetState(QueueItemState.ReadyToExtract, "All required chunks are ready.");
+                item.SetState(
+                    QueueItemState.ReadyToExtract,
+                    item.IsPatch
+                        ? "All required patch chunks are ready."
+                        : "All required chunks are ready.");
                 item.ProgressBar.Value = 100;
                 item.ProgressText.Text = "100%";
                 item.PauseButton.IsEnabled = false;
@@ -598,8 +610,9 @@ public partial class DownloadsView : UserControl
                 item.PauseButton.IsEnabled = false;
                 item.CancelButton.IsEnabled = false;
                 item.DeleteChunksCheckBox.IsEnabled = false;
-                item.RemoveButton.Visibility = Visibility.Collapsed;
-                item.ExtractButton.Visibility = Visibility.Visible;
+                item.RemoveButton.Visibility = Visibility.Visible;
+                item.RemoveButton.IsEnabled = true;
+                item.ExtractButton.Visibility = Visibility.Collapsed;
 
                 PersistHistory();
                 UpdateQueueSummary();
@@ -608,8 +621,31 @@ public partial class DownloadsView : UserControl
         service.ExtractionCancelledCallback = () =>
             Dispatcher.InvokeAsync(() =>
             {
-                if (!IsCurrentSophonOperation(item, operationGeneration)) return;
-                SetCancelled(item);
+                if (!item.CancelRequested) return;
+
+                item.CancelRequested = false;
+                item.ExtractRunning = false;
+                item.SetState(QueueItemState.ReadyToExtract,
+                    item.IsPatch
+                        ? "Extraction cancelled. Patch chunks are still ready."
+                        : "Extraction cancelled. Chunks are still ready.");
+                item.ProgressBar.Value = 0;
+                item.ProgressText.Text = item.IsPatch
+                    ? "Patch chunks ready"
+                    : "Chunks ready";
+                item.PauseButton.IsEnabled = false;
+                item.PauseButton.Content = "PAUSE";
+                item.CancelButton.IsEnabled = false;
+                item.ExtractButton.Visibility = Visibility.Visible;
+                item.ExtractButton.IsEnabled = true;
+                item.ExtractButton.Content = "EXTRACT";
+                item.ExtractButton.Tag = "Extract";
+                item.RemoveButton.Visibility = Visibility.Collapsed;
+                item.RemoveButton.IsEnabled = false;
+                item.DeleteChunksCheckBox.IsEnabled = true;
+
+                PersistHistory();
+                UpdateQueueSummary();
             });
 
         try
@@ -645,15 +681,32 @@ public partial class DownloadsView : UserControl
 
             if (item.SelectedContent.Count == 0)
             {
-                throw new InvalidOperationException(
-                    "No Sophon content was selected. The saved content selection could not be restored.");
+                throw new InvalidOperationException("No Sophon content was selected. The saved content selection could not be restored.");
             }
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            SophonContentSet content = await service
-                .LoadSelectedContentAsync(manifest, item.SelectedContent)
-                .WaitAsync(cancellationToken);
+            SophonContentSet content;
+            if (item.IsPatch)
+            {
+                if (string.IsNullOrWhiteSpace(item.PatchFromVersion))
+                    throw new InvalidOperationException("Patch source version is missing.");
+
+                item.SetState(QueueItemState.Preparing, $"Loading patch manifest {item.PatchFromVersion} → {item.Version}...");
+                ManifestConfig fromManifest = await service
+                    .LoadManifestAsync(item.Game!, item.PatchFromVersion!, item.Channel!)
+                    .WaitAsync(cancellationToken);
+
+                content = await service
+                    .LoadSelectedPatchContentAsync(item.Game!, fromManifest, manifest, item.SelectedContent, cancellationToken)
+                    .WaitAsync(cancellationToken);
+            }
+            else
+            {
+                content = await service
+                    .LoadSelectedContentAsync(manifest, item.SelectedContent, cancellationToken)
+                    .WaitAsync(cancellationToken);
+            }
 
             if (!IsCurrentSophonOperation(item, operationGeneration)) return;
 
@@ -736,10 +789,8 @@ public partial class DownloadsView : UserControl
             SophonDownloadService service = item.SophonService;
 
             await service.StartExtractionAsync(
-                content,
-                item.DestinationDirectory,
-                false,
-                item.DeleteChunksAfterExtraction);
+                content, item.DestinationDirectory,
+                false, item.DeleteChunksAfterExtraction);
 
             if (item.CancelRequested) return;
 
@@ -749,7 +800,9 @@ public partial class DownloadsView : UserControl
             item.PauseButton.IsEnabled = false;
             item.CancelButton.IsEnabled = false;
             item.DeleteChunksCheckBox.IsEnabled = false;
-            item.RemoveButton.Visibility = Visibility.Collapsed;
+            item.RemoveButton.Visibility = Visibility.Visible;
+            item.RemoveButton.IsEnabled = true;
+            item.ExtractButton.Visibility = Visibility.Collapsed;
 
             PersistHistory();
             UpdateQueueSummary();
@@ -757,6 +810,31 @@ public partial class DownloadsView : UserControl
         catch (OperationCanceledException)
         {
             if (item.CancelRequested) SetCancelled(item);
+        }
+        catch (SophonChunkValidationException ex)
+        {
+            if (item.CancelRequested)
+            {
+                SetCancelled(item);
+                return;
+            }
+
+            item.RequiresSophonRepair = true;
+            item.SophonRepairChunkIds = [ex.ChunkId];
+            item.SetState(QueueItemState.Failed,
+                $"Corrupt patch chunk detected. Repair required: {ex.ChunkId}");
+            item.ProgressBar.Value = 0;
+            item.PauseButton.IsEnabled = false;
+            item.CancelButton.IsEnabled = false;
+            item.ExtractButton.Visibility = Visibility.Visible;
+            item.ExtractButton.IsEnabled = true;
+            item.ExtractButton.Content = "REPAIR";
+            item.ExtractButton.Tag = "Repair";
+            item.DeleteChunksCheckBox.IsEnabled = false;
+            item.RemoveButton.Visibility = Visibility.Visible;
+            item.RemoveButton.IsEnabled = true;
+            PersistHistory();
+            UpdateQueueSummary();
         }
         catch (Exception ex)
         {
@@ -772,6 +850,45 @@ public partial class DownloadsView : UserControl
         {
             item.ExtractRunning = false;
         }
+    }
+
+    private async void RepairSophonItem(QueueItem item)
+    {
+        if (item.Type != QueueItemType.Sophon || item.SophonContent is null || item.SophonRepairChunkIds.Count == 0)
+            return;
+
+        item.RequiresSophonRepair = false;
+        item.ExtractRunning = false;
+        item.CancelRequested = false;
+        item.SetState(QueueItemState.Preparing, "Repairing corrupted chunks...");
+        item.PauseButton.Visibility = Visibility.Visible;
+        item.PauseButton.IsEnabled = false;
+        item.PauseButton.Content = "RESUME";
+        item.CancelButton.Visibility = Visibility.Visible;
+        item.CancelButton.IsEnabled = true;
+        item.ExtractButton.Visibility = Visibility.Collapsed;
+        item.ExtractButton.IsEnabled = false;
+        item.DeleteChunksCheckBox.IsEnabled = true;
+        item.RemoveButton.Visibility = Visibility.Collapsed;
+
+        try
+        {
+            var chunkStore = new Core.ChunkStore(item.DestinationDirectory);
+            chunkStore.DeleteChunks(item.SophonRepairChunkIds);
+        }
+        catch (Exception ex)
+        {
+            SetFailed(item, $"Unable to remove corrupted patch chunks: {ex.Message}");
+            return;
+        }
+        finally
+        {
+            item.SophonRepairChunkIds.Clear();
+        }
+
+        PersistHistory();
+        UpdateQueueSummary();
+        await RunSophonDownloadAsync(item);
     }
 
     private void ConfigureSophonServiceCallbacks(QueueItem item, SophonDownloadService service)
@@ -796,13 +913,21 @@ public partial class DownloadsView : UserControl
                 if (item.CancelRequested) return;
 
                 item.SophonChunksReady = true;
-                item.SetState(QueueItemState.ReadyToExtract, "All required chunks are ready.");
+                item.SetState(
+                    QueueItemState.ReadyToExtract,
+                    item.IsPatch
+                        ? "All required patch chunks are ready."
+                        : "All required chunks are ready.");
                 item.ProgressBar.Value = 100;
                 item.ProgressText.Text = "100%";
                 item.PauseButton.IsEnabled = false;
                 item.CancelButton.IsEnabled = false;
                 item.ExtractButton.Visibility = Visibility.Visible;
                 item.ExtractButton.IsEnabled = true;
+                item.ExtractButton.Content = "EXTRACT";
+                item.ExtractButton.Tag = "Extract";
+                item.RequiresSophonRepair = false;
+                item.SophonRepairChunkIds.Clear();
 
                 PersistHistory();
                 UpdateQueueSummary();
@@ -826,6 +951,9 @@ public partial class DownloadsView : UserControl
                 item.PauseButton.IsEnabled = false;
                 item.CancelButton.IsEnabled = false;
                 item.DeleteChunksCheckBox.IsEnabled = false;
+                item.RemoveButton.Visibility = Visibility.Visible;
+                item.RemoveButton.IsEnabled = true;
+                item.ExtractButton.Visibility = Visibility.Collapsed;
 
                 PersistHistory();
                 UpdateQueueSummary();
@@ -834,8 +962,31 @@ public partial class DownloadsView : UserControl
         service.ExtractionCancelledCallback = () =>
             Dispatcher.InvokeAsync(() =>
             {
-                if (item.CancelRequested)
-                    SetCancelled(item);
+                if (!item.CancelRequested) return;
+
+                item.CancelRequested = false;
+                item.ExtractRunning = false;
+                item.SetState(QueueItemState.ReadyToExtract,
+                    item.IsPatch
+                        ? "Extraction cancelled. Patch chunks are still ready."
+                        : "Extraction cancelled. Chunks are still ready.");
+                item.ProgressBar.Value = 0;
+                item.ProgressText.Text = item.IsPatch
+                    ? "Patch chunks ready"
+                    : "Chunks ready";
+                item.PauseButton.IsEnabled = false;
+                item.PauseButton.Content = "PAUSE";
+                item.CancelButton.IsEnabled = false;
+                item.ExtractButton.Visibility = Visibility.Visible;
+                item.ExtractButton.IsEnabled = true;
+                item.ExtractButton.Content = "EXTRACT";
+                item.ExtractButton.Tag = "Extract";
+                item.RemoveButton.Visibility = Visibility.Collapsed;
+                item.RemoveButton.IsEnabled = false;
+                item.DeleteChunksCheckBox.IsEnabled = true;
+
+                PersistHistory();
+                UpdateQueueSummary();
             });
     }
 
@@ -899,8 +1050,9 @@ public partial class DownloadsView : UserControl
     {
         if (_shuttingDown) return;
 
-        if (item.State != QueueItemState.Cancelled &&
-            item.State != QueueItemState.Failed)
+        if (item.State is not QueueItemState.Completed &&
+            item.State is not QueueItemState.Cancelled &&
+            item.State is not QueueItemState.Failed)
         {
             return;
         }
@@ -946,7 +1098,10 @@ public partial class DownloadsView : UserControl
         }
 
         item.CancelRequested = true;
-        item.SetState(QueueItemState.Cancelling, "Stopping operation...");
+        item.SetState(QueueItemState.Cancelling,
+            item.Type == QueueItemType.Sophon && item.ExtractRunning
+                ? "Cancelling extraction..."
+                : "Stopping operation...");
         PersistHistory();
 
         if (item.Type == QueueItemType.Legacy)
@@ -956,6 +1111,12 @@ public partial class DownloadsView : UserControl
             item.ExtractButton.IsEnabled = false;
             item.DeleteChunksCheckBox.IsEnabled = false;
             item.CancellationSource?.Cancel();
+            return;
+        }
+
+        if (item.ExtractRunning)
+        {
+            item.SophonService?.Cancel();
             return;
         }
 
@@ -970,8 +1131,9 @@ public partial class DownloadsView : UserControl
     {
         if (_shuttingDown) return;
 
-        if (item.State != QueueItemState.Cancelled &&
-            item.State != QueueItemState.Failed)
+        if (item.State is not QueueItemState.Completed &&
+            item.State is not QueueItemState.Cancelled &&
+            item.State is not QueueItemState.Failed)
         {
             return;
         }
@@ -1050,7 +1212,9 @@ public partial class DownloadsView : UserControl
                 : 0;
 
         item.ProgressBar.Value = Math.Clamp(percent, 0, 100);
-        item.ProgressText.Text = $"{progress.CompletedChunks:N0} / {progress.TotalChunks:N0} chunks";
+        item.ProgressText.Text = item.IsPatch
+            ? $"{progress.CompletedChunks:N0} / {progress.TotalChunks:N0} patch chunks"
+            : $"{progress.CompletedChunks:N0} / {progress.TotalChunks:N0} chunks";
         item.StatusDetailText.Text = progress.StatusText ?? "Downloading chunks...";
 
         SetStatValue(item, "Files", item.SophonContent?.FileCount.ToString("N0") ?? "0");
@@ -1169,6 +1333,8 @@ public partial class DownloadsView : UserControl
         item.CancelButton.IsEnabled = true;
         item.ExtractButton.Visibility = Visibility.Collapsed;
         item.ExtractButton.IsEnabled = false;
+        item.ExtractButton.Content = "EXTRACT";
+        item.ExtractButton.Tag = "Extract";
         item.RemoveButton.Visibility = Visibility.Collapsed;
         item.DeleteChunksCheckBox.IsEnabled = true;
     }
@@ -1182,6 +1348,8 @@ public partial class DownloadsView : UserControl
         item.CancelButton.IsEnabled = true;
         item.ExtractButton.Visibility = Visibility.Collapsed;
         item.ExtractButton.IsEnabled = false;
+        item.ExtractButton.Content = "EXTRACT";
+        item.ExtractButton.Tag = "Extract";
         item.RemoveButton.Visibility = Visibility.Collapsed;
     }
 
@@ -1283,7 +1451,7 @@ public partial class DownloadsView : UserControl
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine(ex);
+                    Logger.Warn(ex, "Failed to restore a download history entry.");
                 }
             }
 
@@ -1291,7 +1459,7 @@ public partial class DownloadsView : UserControl
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(ex);
+            Logger.Error(ex, "Failed to load download history.");
         }
     }
 
@@ -1305,7 +1473,7 @@ public partial class DownloadsView : UserControl
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine(ex);
+            Logger.Error(ex, "Failed to persist download history.");
         }
     }
 
@@ -1329,6 +1497,7 @@ public partial class DownloadsView : UserControl
             .Where(name => !string.IsNullOrWhiteSpace(name))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList(),
+        PatchFromVersion = item.PatchFromVersion,
         State = (int)item.State,
         StatusMessage = item.StatusDetailText?.Text
     };
@@ -1367,10 +1536,7 @@ public partial class DownloadsView : UserControl
 
             if (IsInterruptedState(entryState))
             {
-                legacyItem.SetState(
-                    QueueItemState.Cancelled,
-                    "Download interrupted by application close. Ready to resume.");
-
+                legacyItem.SetState(QueueItemState.Cancelled, "Download interrupted by application close. Ready to resume.");
                 legacyItem.PauseButton.Content = "RESUME";
                 legacyItem.PauseButton.IsEnabled = true;
                 legacyItem.CancelButton.IsEnabled = false;
@@ -1380,10 +1546,7 @@ public partial class DownloadsView : UserControl
             }
             else
             {
-                legacyItem.SetState(
-                    entryState,
-                    entry.StatusMessage ?? GetDefaultStateMessage(entryState));
-
+                legacyItem.SetState(entryState, entry.StatusMessage ?? GetDefaultStateMessage(entryState));
                 ApplyRestoredStateControls(legacyItem);
             }
 
@@ -1411,14 +1574,10 @@ public partial class DownloadsView : UserControl
         string channel = string.IsNullOrWhiteSpace(entry.Channel) ? "main" : entry.Channel;
 
         var sophonItem = new QueueItem(
-            QueueItemType.Sophon,
-            entry.Title,
-            entry.DestinationDirectory,
-            [],
-            game,
-            entry.Version,
-            channel,
-            entry.DeleteChunksAfterExtraction);
+            QueueItemType.Sophon, entry.Title, entry.DestinationDirectory, [],
+            game, entry.Version, channel, entry.DeleteChunksAfterExtraction);
+
+        sophonItem.PatchFromVersion = entry.PatchFromVersion;
 
         sophonItem.SelectedCategoryIds = entry.SelectedCategoryIds?
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -1431,15 +1590,15 @@ public partial class DownloadsView : UserControl
 
         if (entryState == QueueItemState.Completed)
         {
-            sophonItem.SetState(
-                QueueItemState.Completed,
-                entry.StatusMessage ?? "Completed.");
-
+            sophonItem.SetState(QueueItemState.Completed, entry.StatusMessage ?? "Completed.");
             sophonItem.PauseButton.IsEnabled = false;
             sophonItem.PauseButton.Visibility = Visibility.Collapsed;
             sophonItem.CancelButton.IsEnabled = false;
             sophonItem.CancelButton.Visibility = Visibility.Collapsed;
-            sophonItem.RemoveButton.Visibility = Visibility.Collapsed;
+            sophonItem.RemoveButton.Visibility = Visibility.Visible;
+            sophonItem.RemoveButton.IsEnabled = true;
+            sophonItem.ExtractButton.Visibility = Visibility.Collapsed;
+            sophonItem.ExtractButton.IsEnabled = false;
             sophonItem.DeleteChunksCheckBox.IsEnabled = false;
 
             return;
@@ -1464,8 +1623,7 @@ public partial class DownloadsView : UserControl
                     if (service is null) return;
 
                     SophonContentSet content = await service.LoadSelectedContentAsync(
-                        manifest,
-                        contentOptions);
+                        manifest, contentOptions);
 
                     sophonItem.SophonContent = content;
                     SetSophonMetadata(sophonItem, content);
@@ -1480,6 +1638,8 @@ public partial class DownloadsView : UserControl
                     sophonItem.CancelButton.Visibility = Visibility.Collapsed;
                     sophonItem.ExtractButton.Visibility = Visibility.Visible;
                     sophonItem.ExtractButton.IsEnabled = true;
+                    sophonItem.ExtractButton.Content = "EXTRACT";
+                    sophonItem.ExtractButton.Tag = "Extract";
                     sophonItem.RemoveButton.Visibility = Visibility.Collapsed;
                     sophonItem.DeleteChunksCheckBox.IsEnabled = true;
 
@@ -1488,14 +1648,28 @@ public partial class DownloadsView : UserControl
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine(ex);
+                Logger.Warn(ex, "Failed to restore Sophon history entry.");
             }
         }
 
-        sophonItem.SetState(
-            QueueItemState.Cancelled,
-            "Download history restored. Ready to resume.");
+        if (entryState == QueueItemState.Failed &&
+            (entry.StatusMessage?.Contains("Repair required", StringComparison.OrdinalIgnoreCase) == true ||
+             entry.StatusMessage?.Contains("Corrupt patch chunk", StringComparison.OrdinalIgnoreCase) == true))
+        {
+            sophonItem.SetState(QueueItemState.Failed, entry.StatusMessage ?? "Repair required.");
+            sophonItem.RequiresSophonRepair = true;
+            sophonItem.ExtractButton.Visibility = Visibility.Visible;
+            sophonItem.ExtractButton.IsEnabled = true;
+            sophonItem.ExtractButton.Content = "REPAIR";
+            sophonItem.ExtractButton.Tag = "Repair";
+            sophonItem.PauseButton.IsEnabled = false;
+            sophonItem.CancelButton.IsEnabled = false;
+            sophonItem.RemoveButton.Visibility = Visibility.Visible;
+            sophonItem.RemoveButton.IsEnabled = true;
+            return;
+        }
 
+        sophonItem.SetState(QueueItemState.Cancelled, "Download history restored. Ready to resume.");
         sophonItem.PauseButton.Content = "RESUME";
         sophonItem.PauseButton.IsEnabled = true;
         sophonItem.PauseButton.Visibility = Visibility.Visible;
@@ -1514,9 +1688,7 @@ public partial class DownloadsView : UserControl
         item.SophonService = new SophonDownloadService();
 
         return await item.SophonService.LoadManifestAsync(
-            item.Game,
-            item.Version!,
-            item.Channel ?? "main");
+            item.Game, item.Version!, item.Channel ?? "main");
     }
 
     private static List<SophonContentOption> BuildSelectedHistoryContent(
@@ -1565,7 +1737,9 @@ public partial class DownloadsView : UserControl
                 item.CancelButton.IsEnabled = false;
                 item.CancelButton.Visibility = Visibility.Collapsed;
                 item.ExtractButton.IsEnabled = false;
-                item.RemoveButton.Visibility = Visibility.Collapsed;
+                item.ExtractButton.Visibility = Visibility.Collapsed;
+                item.RemoveButton.Visibility = Visibility.Visible;
+                item.RemoveButton.IsEnabled = true;
                 item.DeleteChunksCheckBox.IsEnabled = false;
                 break;
 
@@ -1583,10 +1757,7 @@ public partial class DownloadsView : UserControl
                 break;
 
             default:
-                item.SetState(
-                    QueueItemState.Cancelled,
-                    "Download history restored. Ready to resume.");
-
+                item.SetState(QueueItemState.Cancelled, "Download history restored. Ready to resume.");
                 item.PauseButton.Content = "RESUME";
                 item.PauseButton.IsEnabled = true;
                 item.PauseButton.Visibility = Visibility.Visible;
@@ -1668,6 +1839,8 @@ public partial class DownloadsView : UserControl
         public GameInfo? Game { get; }
         public string? Version { get; }
         public string? Channel { get; }
+        public string? PatchFromVersion { get; set; }
+        public bool IsPatch => Type == QueueItemType.Sophon && !string.IsNullOrWhiteSpace(PatchFromVersion);
 
         public bool DeleteChunksAfterExtraction { get; set; }
         public List<SophonContentOption> SelectedContent { get; set; } = [];
@@ -1695,6 +1868,8 @@ public partial class DownloadsView : UserControl
         public bool CancelRequested { get; set; }
         public bool SophonChunksReady { get; set; }
         public bool ExtractRunning { get; set; }
+        public bool RequiresSophonRepair { get; set; }
+        public List<string> SophonRepairChunkIds { get; set; } = [];
         public QueueItemState State { get; private set; }
 
         public QueueItem(

@@ -1,14 +1,8 @@
-using System.IO;
 using System.IO.Compression;
-using System.Net;
-using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Security.Cryptography;
-using System.Threading;
 using SophonDownloader.Models;
 using SharpCompress.Archives;
 using SharpCompress.Archives.SevenZip;
-using NLog;
 
 namespace SophonDownloader.Services;
 
@@ -69,8 +63,14 @@ public sealed class LegacyExplorerService
                 $"Loading Legacy archive explorer. " +
                 $"Archive={archive.Name}, Parts={validUrls.Count:N0}");
 
+            Logger.Debug($"Legacy Explorer archive URLs prepared: Archive={archive.Name}, UrlCount={validUrls.Count:N0}. ");
+            foreach (string url in validUrls)
+                Logger.Debug($"Legacy Explorer archive part URL: Archive={archive.Name}, URL={url}");
+
             List<LegacyArchivePart> parts =
                 await BuildArchivePartsAsync(validUrls, cancellationToken);
+
+            Logger.Info($"Legacy Explorer archive metadata loaded: Archive={archive.Name}, Parts={parts.Count:N0}, TotalBytes={parts.Sum(p => p.Length):N0}.");
 
             List<LegacyExplorerNode> nodes =
                 await Task.Run(
@@ -141,6 +141,10 @@ public sealed class LegacyExplorerService
 
         Directory.CreateDirectory(destinationDirectory);
 
+        Logger.Info($"Legacy Explorer download started. Files={files.Count:N0}, Destination={destinationDirectory}, TotalBytes={files.Sum(f => f.Size):N0}.");
+        foreach (LegacyExplorerNode file in files)
+            Logger.Debug($"Legacy Explorer queued file: {file.FullPath} ({file.Size:N0} bytes), ArchiveCode={file.ArchiveCode}");
+
         using CancellationTokenSource linkedCts =
             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
@@ -157,6 +161,17 @@ public sealed class LegacyExplorerService
         {
             await Task.Run(
                 () => DownloadSelectedCore(archives, files, destinationDirectory, progress, linkedCts.Token), linkedCts.Token);
+            Logger.Info($"Legacy Explorer download completed successfully. Files={files.Count:N0}, Destination={destinationDirectory}.");
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.Warn($"Legacy Explorer download cancelled. Files={files.Count:N0}, Destination={destinationDirectory}.");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, $"Legacy Explorer download failed. Files={files.Count:N0}, Destination={destinationDirectory}.");
+            throw;
         }
         finally
         {
@@ -176,15 +191,22 @@ public sealed class LegacyExplorerService
         {
             if (_downloadCts is null) return;
             _pauseGate.Reset();
+            Logger.Info("Legacy Explorer download paused.");
         }
     }
 
-    public void Resume() => _pauseGate.Set();
+    public void Resume()
+    {
+        _pauseGate.Set();
+        Logger.Info("Legacy Explorer download resumed.");
+    }
 
     public void Cancel()
     {
         lock (_downloadSync)
         {
+            if (_downloadCts is not null)
+                Logger.Info("Legacy Explorer cancellation requested.");
             _downloadCts?.Cancel();
         }
 
@@ -232,13 +254,18 @@ public sealed class LegacyExplorerService
                 var stream = new LegacyArchiveStream(HttpClient, parts);
                 archiveStreams[archiveInfo] = stream;
 
-                if (DetectArchiveKind(urls[0]) == ArchiveKind.SevenZip)
+                ArchiveKind archiveKind = DetectArchiveKind(urls[0]);
+                Logger.Info($"Legacy Explorer opening archive: Name={archiveInfo.Name}, Code={archiveInfo.Code}, Kind={archiveKind}, Parts={parts.Count:N0}, Bytes={parts.Sum(p => p.Length):N0}.");
+
+                if (archiveKind == ArchiveKind.SevenZip)
                 {
                     sevenZipArchives[archiveInfo] = SevenZipArchive.Open(stream);
+                    Logger.Debug($"Legacy Explorer 7z archive opened: {archiveInfo.Name}");
                 }
                 else
                 {
                     zipArchives[archiveInfo] = new ZipArchive(stream, ZipArchiveMode.Read, false);
+                    Logger.Debug($"Legacy Explorer ZIP archive opened: {archiveInfo.Name}");
                 }
             }
 
@@ -285,12 +312,16 @@ public sealed class LegacyExplorerService
                     StatusText = $"Downloading {completedFiles + 1:N0}/{files.Count:N0}"
                 });
 
+                Logger.Info($"Legacy Explorer file started: [{completedFiles + 1:N0}/{files.Count:N0}] {node.FullPath}; Archive={archiveInfo.Name}; Size={node.Size:N0}; Output={outputPath}");
+
                 try
                 {
                     Stream input =
                         OpenEntryStream(
                             archiveInfo, node.FullPath, zipArchives, sevenZipArchives)
                             ?? throw new FileNotFoundException($"Archive entry was not found: {node.FullPath}");
+
+                    Logger.Debug($"Legacy Explorer archive entry opened: {node.FullPath}; Archive={archiveInfo.Name}");
 
                     using (input)
                     using (var output = new FileStream(
@@ -306,9 +337,17 @@ public sealed class LegacyExplorerService
 
                     MoveFileWithRetry(temporaryPath, outputPath, cancellationToken);
                 }
-                catch
+                catch (OperationCanceledException)
                 {
-                    TryDeleteFile(temporaryPath); throw;
+                    Logger.Warn($"Legacy Explorer file cancelled: {node.FullPath}; Downloaded={currentFileBytes:N0} bytes");
+                    TryDeleteFile(temporaryPath);
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Logger.Error(ex, $"Legacy Explorer file failed: {node.FullPath}; Archive={archiveInfo.Name}; Downloaded={currentFileBytes:N0} bytes; Output={outputPath}");
+                    TryDeleteFile(temporaryPath);
+                    throw;
                 }
 
                 completedFiles++;
@@ -317,6 +356,8 @@ public sealed class LegacyExplorerService
                 if (completedBytes > totalBytes)
                     completedBytes = totalBytes;
 
+                Logger.Info($"Legacy Explorer file completed: [{completedFiles:N0}/{files.Count:N0}] {node.FullPath}; Size={currentFileBytes:N0} bytes; Output={outputPath}");
+
                 progress?.Report(new LegacyExplorerDownloadProgress
                 {
                     CompletedFiles = completedFiles,
@@ -324,7 +365,7 @@ public sealed class LegacyExplorerService
                     CompletedBytes = completedBytes,
                     TotalBytes = totalBytes,
                     CurrentFile = node.FullPath,
-                    StatusText = "Downloaded {completedFiles:N0}/{files.Count:N0}"
+                    StatusText = $"Downloaded {completedFiles:N0}/{files.Count:N0}"
                 });
             }
         }
@@ -333,23 +374,23 @@ public sealed class LegacyExplorerService
             foreach (IArchive archive in sevenZipArchives.Values)
             {
                 try { archive.Dispose(); }
-                catch { }
+                catch {}
             }
 
             foreach (ZipArchive archive in zipArchives.Values)
             {
                 try { archive.Dispose(); }
-                catch { }
+                catch {}
             }
 
             foreach (LegacyArchiveStream stream in archiveStreams.Values)
             {
                 try { stream.Dispose(); }
-                catch { }
+                catch {}
             }
         }
 
-        Logger.Info("Legacy Explorer selected asset download completed.");
+        Logger.Debug($"Legacy Explorer core loop completed. Files={files.Count:N0}, TotalBytes={files.Sum(f => f.Size):N0}.");
     }
 
     private void CopyStreamWithProgress(
@@ -625,8 +666,7 @@ public sealed class LegacyExplorerService
                 .EndsWith("/", StringComparison.Ordinal);
 
             AddEntry(root, lookup, normalized, entry.Length, entry.CompressedLength, entry.CompressedLength == entry.Length
-                ? "Stored"
-                : "Deflate", isFolder, archiveCode);
+                ? "Stored" : "Deflate", isFolder, archiveCode);
         }
 
         SortTree(root);
@@ -882,7 +922,10 @@ public sealed class LegacyExplorerService
         }
         catch (OperationCanceledException)
         { throw; }
-        catch { }
+        catch (Exception ex)
+        {
+            Logger.Debug(ex, $"Legacy Explorer HEAD size probe failed; falling back to range request: {url}");
+        }
 
         using var rangeRequest = new HttpRequestMessage(HttpMethod.Get, url);
         rangeRequest.Headers.Range = new RangeHeaderValue(0, 0);
@@ -921,7 +964,7 @@ public sealed class LegacyExplorerService
             if (segment == "..")
             {
                 if (segments.Count == 0)
-                    throw new InvalidDataException( "Archive path escapes its root: {path}");
+                    throw new InvalidDataException("Archive path escapes its root: {path}");
 
                 segments.RemoveAt(segments.Count - 1); continue;
             }

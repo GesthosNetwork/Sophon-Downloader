@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using SophonDownloader.Models;
 
 namespace SophonDownloader.Services;
@@ -80,7 +81,7 @@ public static class ManifestResolver
     public static bool HasAnyDownload(LegacyVersion version) =>
         HasAnyFullDownload(version) || HasAnyUpdateDownload(version);
 
-    public static bool HasValidUrl(string? url) =>
+    public static bool HasValidUrl([NotNullWhen(true)] string? url) =>
         Uri.TryCreate(url, UriKind.Absolute, out Uri? uri) &&
         (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 

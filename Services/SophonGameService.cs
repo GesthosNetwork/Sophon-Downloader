@@ -1,9 +1,3 @@
-using System.Collections.Concurrent;
-using System.Net;
-using System.Net.Http;
-using System.Text;
-using System.Text.Json;
-using NLog;
 using SophonDownloader.Models;
 
 namespace SophonDownloader.Services;
@@ -185,8 +179,7 @@ public static class SophonGameService
 
             int maxPatch =
                 major == currentMajor && minor == currentMinor
-                    ? currentPatch
-                    : 9;
+                    ? currentPatch : 9;
 
             for (int patch = 1; patch <= maxPatch; patch++)
             {

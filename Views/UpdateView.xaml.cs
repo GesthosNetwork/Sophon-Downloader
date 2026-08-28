@@ -1,5 +1,3 @@
-using System.Windows;
-using System.Windows.Controls;
 using SophonDownloader.Services;
 
 namespace SophonDownloader;
