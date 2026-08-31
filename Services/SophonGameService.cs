@@ -11,6 +11,10 @@ public static class SophonGameService
         Timeout = TimeSpan.FromSeconds(10)
     };
 
+    private static readonly ConcurrentDictionary<string, Task<BranchesGameBranch>> InFlightBranchRequests = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, (DateTimeOffset ExpiresAt, BranchesGameBranch Branch)> BranchCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan BranchCacheDuration = TimeSpan.FromSeconds(3);
+
     private static readonly Dictionary<string,
         (string ApiBase, string SophonBase, string LauncherId, string PlatApp)> RegionConfigs = new()
     {
@@ -78,24 +82,60 @@ public static class SophonGameService
         new("Honkai: Star Rail (CN)", "hkrpg_cn", "CNREL"),
         new("Zenless Zone Zero", "nap_global", "OSREL"),
         new("Zenless Zone Zero (CN)", "nap_cn", "CNREL"),
-        new("Honkai Impact 3rd (CN)", "bh3_cn", "CNREL"),
         new("Honkai Impact 3rd", "bh3_global", "OSREL"),
+        new("Honkai Impact 3rd (SEA)", "bh3_sea", "OSREL"),
+        new("Honkai Impact 3rd (CN)", "bh3_cn", "CNREL"),
         new("Honkai Impact 3rd (JP)", "bh3_jp", "OSREL"),
         new("Honkai Impact 3rd (KR)", "bh3_kr", "OSREL"),
         new("Honkai Impact 3rd (TW)", "bh3_tw", "OSREL"),
-        new("Honkai Impact 3rd (SEA)", "bh3_sea", "OSREL"),
         new("Genshin Impact (Bilibili)", "hk4e_cn", "BILIBILIYS"),
         new("Honkai: Star Rail (Bilibili)", "hkrpg_cn", "BILIBILISR"),
         new("Zenless Zone Zero (Bilibili)", "nap_cn", "BILIBILIJQL")
     ];
 
-    public static async Task<BranchesGameBranch> GetGameBranches(string gameId, string region)
+    public static async Task<BranchesGameBranch> GetGameBranches(
+        string gameId, string region, string requester = "Unknown")
     {
         var config = GetRegionConfig(region);
         string relGameId = GetRelGameId(gameId, region);
-
+        string requestKey = $"{gameId}|{region}";
         string url = BuildQueryUrl(config.ApiBase, ("game_ids[]", relGameId), ("launcher_id", config.LauncherId));
-        Logger.Debug($"Request: {url}");
+
+        if (BranchCache.TryGetValue(requestKey, out var cached) && cached.ExpiresAt > DateTimeOffset.UtcNow)
+        {
+            Logger.Debug($"Branches cache hit. Caller={requester}; Game={gameId}; Region={region}; RelGameId={relGameId}; ExpiresIn={(cached.ExpiresAt - DateTimeOffset.UtcNow).TotalMilliseconds:N0}ms");
+            return cached.Branch;
+        }
+
+        if (InFlightBranchRequests.TryGetValue(requestKey, out Task<BranchesGameBranch>? existingTask))
+        {
+            Logger.Debug($"Branches request coalesced. Caller={requester}; Game={gameId}; Region={region}; RelGameId={relGameId}; URL={url}");
+            return await existingTask;
+        }
+
+        Task<BranchesGameBranch> requestTask = FetchGameBranchesAsync(gameId, region, relGameId, url, requester);
+        if (!InFlightBranchRequests.TryAdd(requestKey, requestTask))
+        {
+            Logger.Debug($"Branches request coalesced after race. Caller={requester}; Game={gameId}; Region={region}; RelGameId={relGameId}; URL={url}");
+            return await InFlightBranchRequests[requestKey];
+        }
+
+        try
+        {
+            BranchesGameBranch branch = await requestTask;
+            BranchCache[requestKey] = (DateTimeOffset.UtcNow.Add(BranchCacheDuration), branch);
+            return branch;
+        }
+        finally
+        {
+            InFlightBranchRequests.TryRemove(requestKey, out _);
+        }
+    }
+
+    private static async Task<BranchesGameBranch> FetchGameBranchesAsync(
+        string gameId, string region, string relGameId, string url, string requester)
+    {
+        Logger.Debug($"API request started. Caller={requester}; Game={gameId}; Region={region}; RelGameId={relGameId}; URL={url}");
 
         string json = await HttpClient.GetStringAsync(url);
         BranchesRoot? response = Deserialize<BranchesRoot>(json);
@@ -112,6 +152,7 @@ public static class SophonGameService
         if (branch is null)
             throw new InvalidOperationException($"Could not find branch information for game {gameId} in region {region}");
 
+        Logger.Debug($"API request completed. Caller={requester}; Game={gameId}; Region={region}; RelGameId={relGameId}; MainTag={branch.main?.tag ?? "none"}");
         return branch;
     }
 
@@ -131,10 +172,9 @@ public static class SophonGameService
     }
 
     public static async Task<List<string>> GetHistoricalVersionsAsync(
-        GameInfo game,
-        CancellationToken cancellationToken = default)
+        GameInfo game, CancellationToken cancellationToken = default)
     {
-        BranchesGameBranch branches = await GetGameBranches(game.GameId, game.Region);
+        BranchesGameBranch branches = await GetGameBranches(game.GameId, game.Region, "SophonGameService.GetHistoricalVersionsAsync");
         BranchesMain? branch = branches.main;
 
         if (branch is null) return [];

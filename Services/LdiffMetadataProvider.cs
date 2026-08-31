@@ -88,10 +88,7 @@ public sealed class LdiffMetadataProvider : ILdiffMetadataProvider
         if (string.IsNullOrWhiteSpace(diffManifestUrl))
             return null;
 
-        return new LdiffSource(
-            diffListUrl,
-            diffManifestUrl,
-            ResolveLanguage(matchingField));
+        return new LdiffSource(diffListUrl, diffManifestUrl, ResolveLanguage(matchingField));
     }
 
     private static async Task<JsonDocument> LoadRepositoryManifestAsync(
@@ -156,14 +153,9 @@ public sealed class LdiffMetadataProvider : ILdiffMetadataProvider
     private static async Task<JsonDocument> LoadJsonAsync(
         string url, CancellationToken cancellationToken)
     {
-        using HttpResponseMessage response =
-            await HttpClient.GetAsync(url, cancellationToken);
-
+        using HttpResponseMessage response = await HttpClient.GetAsync(url, cancellationToken);
         response.EnsureSuccessStatusCode();
-
-        byte[] bytes =
-            await response.Content.ReadAsByteArrayAsync(cancellationToken);
-
+        byte[] bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken);
         return JsonDocument.Parse(bytes);
     }
 }

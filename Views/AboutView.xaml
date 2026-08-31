@@ -26,7 +26,7 @@
                            FontSize="20"
                            FontWeight="SemiBold"/>
 
-                <TextBlock Text="An advanced tool for downloading game assets using the Sophon-based content delivery system."
+                <TextBlock Text="An advanced tool for downloading game assets using the Sophon-based content delivery system. This application only downloads assets, it is not the game launcher."
                            Foreground="{DynamicResource SecondaryTextBrush}"
                            FontSize="12"
                            TextWrapping="Wrap"

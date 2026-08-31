@@ -32,24 +32,19 @@ public static class ThemeManager
 
         bool darkMode = string.Equals(settings.ThemeMode, "Dark", StringComparison.OrdinalIgnoreCase);
         string readableSecondary = darkMode ? p.Muted : p.Text;
-
-        SetBrush(window.Resources, "WhiteBrush", p.Text);
         SetBrush(window.Resources, "InverseTextBrush", "#FFFFFF");
         SetBrush(window.Resources, "PrimaryTextBrush", p.Text);
         SetBrush(window.Resources, "SecondaryTextBrush", readableSecondary);
         SetBrush(window.Resources, "MutedTextBrush", readableSecondary);
         SetBrush(window.Resources, "LabelBrush", p.Text);
         SetBrush(window.Resources, "AccentBrush", p.Primary);
-        SetBrush(window.Resources, "AccentHoverBrush", p.PrimaryHover);
         SetBrush(window.Resources, "PanelBrush", p.Surface);
         SetBrush(window.Resources, "PanelStrongBrush", p.CardTitle);
         SetBrush(window.Resources, "InputBackgroundBrush", p.InputBackground);
-        SetBrush(window.Resources, "InputHoverBrush", p.SurfaceHover);
         SetBrush(window.Resources, "DropdownBackgroundBrush", p.InputBackground);
         SetBrush(window.Resources, "DropdownHoverBrush", p.SurfaceHover);
         SetBrush(window.Resources, "DropdownSelectedBrush", p.Primary);
         SetBrush(window.Resources, "ControlBorderBrush", p.Border);
-        SetBrush(window.Resources, "ControlHoverBrush", p.SurfaceHover);
         SetBrush(window.Resources, "ControlFocusBrush", p.Primary);
         SetBrush(window.Resources, "OnlineBrush", p.Active);
         SetBrush(window.Resources, "OfflineBrush", p.Danger);
@@ -59,7 +54,6 @@ public static class ThemeManager
         SetBrush(window.Resources, "PanelBackgroundBrush", p.Surface);
         SetBrush(window.Resources, "PanelStrongBackgroundBrush", p.CardTitle);
         SetBrush(window.Resources, "InputBackgroundGradientBrush", p.InputBackground);
-        SetBrush(window.Resources, "DropdownBackgroundGradientBrush", p.InputBackground);
         SetBrush(window.Resources, "ModeButtonBackgroundBrush", p.SurfaceHover);
         SetBrush(window.Resources, "PrimaryButtonBackgroundBrush", p.Primary);
         SetBrush(window.Resources, "PrimaryButtonHoverBrush", p.PrimaryHover);
@@ -69,13 +63,11 @@ public static class ThemeManager
         SetBrush(window.Resources, "SecondaryButtonPressedBrush", p.Primary);
         SetBrush(window.Resources, "CancelButtonBackgroundBrush", p.Danger);
         SetBrush(window.Resources, "CancelButtonHoverBrush", p.Danger);
-        SetBrush(window.Resources, "CancelButtonPressedBrush", p.Danger);
         SetBrush(window.Resources, "DangerSoftBackgroundBrush", p.DangerSoft);
         SetBrush(window.Resources, "DangerSoftHoverBrush", p.DangerSoftHover);
         SetBrush(window.Resources, "ReloadButtonBackgroundBrush", p.SurfaceHover);
         SetBrush(window.Resources, "LogoBackgroundBrush", p.Primary);
         SetBrush(window.Resources, "HeaderForegroundBrush", darkMode ? "#FFFFFF" : p.Text);
-        SetBrush(window.Resources, "HeaderMutedBrush", darkMode ? "#FFFFFF" : p.Text);
         SetBrush(window.Resources, "HeaderHoverBrush", p.PrimaryHover);
         SetBrush(window.Resources, "GameTextPanelBrush", darkMode ? "#B8000000" : "#55FFFFFF");
         bool hasBackgroundImage = !string.IsNullOrWhiteSpace(settings.BackgroundImagePath) && File.Exists(settings.BackgroundImagePath);
@@ -84,7 +76,6 @@ public static class ThemeManager
         SetBrush(window.Resources, "BackgroundBrush", p.Background);
         SetBrush(window.Resources, "SurfaceBrush", p.Surface);
         SetBrush(window.Resources, "SurfaceHoverBrush", p.SurfaceHover);
-        SetBrush(window.Resources, "CardTitleBrush", p.CardTitle);
         SetBrush(window.Resources, "ButtonBackgroundBrush", p.SurfaceHover);
         SetBrush(window.Resources, "PrimaryBrush", p.Primary);
         SetBrush(window.Resources, "PrimaryHoverBrush", p.PrimaryHover);

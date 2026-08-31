@@ -214,11 +214,7 @@ public sealed class ChunkExtractor : IDisposable
         try
         {
             await using var output = new FileStream(
-                temporaryPath,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                BufferSize,
+                temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None, BufferSize,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
 
             foreach (SophonChunk chunk in file.Chunks)
@@ -259,10 +255,7 @@ public sealed class ChunkExtractor : IDisposable
     }
 
     private async Task CopyRawLdiffChunkAsync(
-        SophonChunk chunk,
-        ChunkStore chunkStore,
-        FileStream output,
-        CancellationToken cancellationToken)
+        SophonChunk chunk, ChunkStore chunkStore, FileStream output, CancellationToken cancellationToken)
     {
         await using FileStream chunkStream = await OpenValidatedChunkAsync(
             chunk, chunkStore, cancellationToken, isLdiff: true);
@@ -302,11 +295,7 @@ public sealed class ChunkExtractor : IDisposable
         try
         {
             await using var output = new FileStream(
-                temporaryPath,
-                FileMode.Create,
-                FileAccess.ReadWrite,
-                FileShare.None,
-                BufferSize,
+                temporaryPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None, BufferSize,
                 FileOptions.Asynchronous | FileOptions.RandomAccess);
 
             if (file.Size > 0)
@@ -316,12 +305,7 @@ public sealed class ChunkExtractor : IDisposable
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 await WaitIfPausedAsync(cancellationToken);
-
-                await WritePatchChunkAsync(
-                    chunk,
-                    chunkStore,
-                    output,
-                    cancellationToken);
+                await WritePatchChunkAsync(chunk, chunkStore, output, cancellationToken);
             }
 
             await output.FlushAsync(cancellationToken);
@@ -337,10 +321,7 @@ public sealed class ChunkExtractor : IDisposable
     }
 
     private async Task WritePatchChunkAsync(
-        SophonChunk chunk,
-        ChunkStore chunkStore,
-        FileStream output,
-        CancellationToken cancellationToken)
+        SophonChunk chunk, ChunkStore chunkStore, FileStream output, CancellationToken cancellationToken)
     {
         await using FileStream chunkStream = await OpenValidatedChunkAsync(
             chunk, chunkStore, cancellationToken);
@@ -350,8 +331,7 @@ public sealed class ChunkExtractor : IDisposable
         long chunkBytes = 0;
 
         if (chunk.Offset < 0 || chunk.Offset + chunk.UncompressedSize > output.Length)
-            throw new InvalidDataException(
-                $"Patch chunk '{chunk.Id}' offset is outside the target file: offset={chunk.Offset}, size={chunk.UncompressedSize}, file={output.Length}");
+            throw new InvalidDataException($"Patch chunk '{chunk.Id}' offset is outside the target file: offset={chunk.Offset}, size={chunk.UncompressedSize}, file={output.Length}");
 
         output.Position = chunk.Offset;
 
@@ -386,8 +366,7 @@ public sealed class ChunkExtractor : IDisposable
     }
 
     private static (string FilePath, string TemporaryPath) PrepareOutputPaths(
-        string saveDirectory,
-        string relativePath)
+        string saveDirectory, string relativePath)
     {
         string filePath = Path.GetFullPath(Path.Combine(saveDirectory, relativePath));
         EnsurePathInsideSaveDirectory(saveDirectory, filePath);
@@ -400,10 +379,7 @@ public sealed class ChunkExtractor : IDisposable
     }
 
     private static async Task<FileStream> OpenValidatedChunkAsync(
-        SophonChunk chunk,
-        ChunkStore chunkStore,
-        CancellationToken cancellationToken,
-        bool isLdiff = false)
+        SophonChunk chunk, ChunkStore chunkStore, CancellationToken cancellationToken, bool isLdiff = false)
     {
         FileStream chunkStream = chunkStore.OpenChunk(chunk.Id);
 
@@ -442,10 +418,7 @@ public sealed class ChunkExtractor : IDisposable
     }
 
     private async Task ExtractFileAsync(
-        SophonChunkFile file,
-        ChunkStore chunkStore,
-        string saveDirectory,
-        CancellationToken cancellationToken)
+        SophonChunkFile file, ChunkStore chunkStore, string saveDirectory, CancellationToken cancellationToken)
     {
         (string filePath, string temporaryPath) = PrepareOutputPaths(saveDirectory, file.File);
 
@@ -467,16 +440,10 @@ public sealed class ChunkExtractor : IDisposable
         try
         {
             long fileBytes = 0;
-
             using var fileMd5 = IncrementalHash.CreateHash(HashAlgorithmName.MD5);
 
             using (var output = new FileStream(
-                temporaryPath,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                BufferSize,
-                FileOptions.Asynchronous | FileOptions.SequentialScan))
+                temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None, BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
                 foreach (SophonChunk chunk in file.Chunks)
                 {
@@ -484,11 +451,7 @@ public sealed class ChunkExtractor : IDisposable
                     await WaitIfPausedAsync(cancellationToken);
 
                     fileBytes += await ExtractChunkAsync(
-                        chunk,
-                        chunkStore,
-                        output,
-                        fileMd5,
-                        cancellationToken);
+                        chunk, chunkStore, output, fileMd5, cancellationToken);
                 }
 
                 await output.FlushAsync(cancellationToken);
@@ -499,12 +462,10 @@ public sealed class ChunkExtractor : IDisposable
             string calculatedFileMd5 = Convert.ToHexString(fileMd5.GetHashAndReset()).ToLowerInvariant();
 
             if (fileBytes != file.Size)
-                throw new InvalidDataException(
-                    $"File size mismatch for '{file.File}': expected {file.Size}, actual {fileBytes}");
+                throw new InvalidDataException($"File size mismatch for '{file.File}': expected {file.Size}, actual {fileBytes}");
 
             if (!calculatedFileMd5.Equals(file.Md5, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException(
-                    $"Final file MD5 mismatch for '{file.File}': expected {file.Md5}, actual {calculatedFileMd5}");
+                throw new InvalidDataException($"Final file MD5 mismatch for '{file.File}': expected {file.Md5}, actual {calculatedFileMd5}");
 
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -519,11 +480,7 @@ public sealed class ChunkExtractor : IDisposable
     }
 
     private async Task<long> ExtractChunkAsync(
-        SophonChunk chunk,
-        ChunkStore chunkStore,
-        FileStream output,
-        IncrementalHash fileMd5,
-        CancellationToken cancellationToken)
+        SophonChunk chunk, ChunkStore chunkStore, FileStream output, IncrementalHash fileMd5, CancellationToken cancellationToken)
     {
         await using FileStream chunkStream = chunkStore.OpenChunk(chunk.Id);
 
@@ -590,9 +547,7 @@ public sealed class ChunkExtractor : IDisposable
     }
 
     private Task CleanupExtraFilesAsync(
-        List<SophonChunkFile> allFiles,
-        string saveDirectory,
-        ChunkStore chunkStore)
+        List<SophonChunkFile> allFiles, string saveDirectory, ChunkStore chunkStore)
     {
         var expectedFiles = new HashSet<string>(
             allFiles
@@ -746,19 +701,13 @@ public sealed class ChunkExtractor : IDisposable
         _disposed = true;
         Logger.Info("Disposing ChunkExtractor.");
 
-        try
-        {
-            _cancellationTokenSource.Cancel();
-        }
+        try { _cancellationTokenSource.Cancel(); }
         catch {}
 
         lock (_pauseLock)
             _resumeSignal.TrySetResult(true);
 
-        try
-        {
-            _cancellationTokenSource.Dispose();
-        }
+        try { _cancellationTokenSource.Dispose(); }
         catch {}
 
         Logger.Info("ChunkExtractor disposed.");

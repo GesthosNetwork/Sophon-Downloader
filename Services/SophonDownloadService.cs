@@ -25,6 +25,16 @@ public sealed class SophonDownloadService : IDisposable
     private string? _currentSaveDirectory;
 
     private bool _disposed;
+    private string _logJobId = "n/a";
+    private string _logJobTitle = "n/a";
+
+    public void SetLogContext(string jobId, string jobTitle)
+    {
+        _logJobId = string.IsNullOrWhiteSpace(jobId) ? "n/a" : jobId;
+        _logJobTitle = string.IsNullOrWhiteSpace(jobTitle) ? "n/a" : jobTitle;
+    }
+
+    private string JobContext => $"Job={_logJobId}; Title=\"{_logJobTitle}\"";
     private bool _chunkDownloadCompletedPending;
     private bool _chunkDownloadCancelledPending;
     private bool _extractionCompletedPending;
@@ -56,7 +66,7 @@ public sealed class SophonDownloadService : IDisposable
         ThrowIfDisposed();
 
         BranchesGameBranch branchInfo =
-            await SophonGameService.GetGameBranches(game.GameId, game.Region);
+            await SophonGameService.GetGameBranches(game.GameId, game.Region, "SophonDownloadService.LoadManifestAsync");
 
         BranchesMain? branchData =
             branch.Equals("predownload", StringComparison.OrdinalIgnoreCase)
@@ -75,7 +85,7 @@ public sealed class SophonDownloadService : IDisposable
             branchData.package_id, branchData.password,
             useLatestPreDownloadTag ? null : version, branch);
 
-        Logger.Info($"Loading Sophon build manifest: {url}");
+        Logger.Info($"Loading Sophon build manifest. {JobContext}; URL={url}");
 
         using HttpResponseMessage response =
             await HttpClient.GetAsync(url, cancellationToken);
@@ -94,7 +104,7 @@ public sealed class SophonDownloadService : IDisposable
             throw new InvalidDataException("Sophon manifest does not contain a version tag.");
 
         _currentManifest = config;
-        Logger.Info($"Sophon build manifest loaded: {config.data.tag}");
+        Logger.Info($"Sophon build manifest loaded. {JobContext}; Tag={config.data.tag}");
 
         return config;
     }
@@ -208,8 +218,7 @@ public sealed class SophonDownloadService : IDisposable
         }
 
         if (allFiles.Count == 0)
-            throw new InvalidOperationException(
-                $"No LDiff artifacts were found for {fromManifest.data.tag} → {toManifest.data.tag}.");
+            throw new InvalidOperationException($"No LDiff artifacts were found for {fromManifest.data.tag} → {toManifest.data.tag}.");
 
         var content = new SophonContentSet
         {
@@ -250,8 +259,7 @@ public sealed class SophonDownloadService : IDisposable
     }
 
     public async Task<SophonContentSet> LoadSelectedContentAsync(
-        ManifestConfig manifest,
-        IEnumerable<SophonContentOption> selected,
+        ManifestConfig manifest, IEnumerable<SophonContentOption> selected,
         CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
@@ -482,7 +490,7 @@ public sealed class SophonDownloadService : IDisposable
     public void Cancel()
     {
         if (_disposed) return;
-        Logger.Info("Sophon cancellation requested.");
+        Logger.Info($"Sophon cancellation requested. {JobContext}");
         _downloader.CancelDownload();
     }
 
@@ -517,7 +525,7 @@ public sealed class SophonDownloadService : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        Logger.Info("Disposing SophonDownloadService.");
+        Logger.Info($"Disposing SophonDownloadService. {JobContext}");
 
         try
         {

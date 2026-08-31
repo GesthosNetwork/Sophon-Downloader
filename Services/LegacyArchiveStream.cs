@@ -204,10 +204,8 @@ public sealed class LegacyArchiveStream : Stream
             throw new EndOfStreamException();
 
         byte[] data = FetchRange(
-            part.Url,
-            localPosition,
-            localPosition + length - 1,
-            length);
+            part.Url, localPosition,
+            localPosition + length - 1, length);
 
         _cache = data;
         _cacheLength = data.Length;
@@ -221,8 +219,7 @@ public sealed class LegacyArchiveStream : Stream
         request.Headers.Range = new RangeHeaderValue(start, end);
 
         using HttpResponseMessage response = _httpClient.Send(
-            request,
-            HttpCompletionOption.ResponseHeadersRead);
+            request, HttpCompletionOption.ResponseHeadersRead);
 
         if (response.StatusCode == HttpStatusCode.PartialContent)
         {

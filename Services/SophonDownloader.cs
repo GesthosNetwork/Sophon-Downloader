@@ -65,17 +65,10 @@ public sealed class SophonCoreDownloader : IDisposable
 
         _chunkDownloader = new ChunkDownloader
         {
-            ProgressUpdateCallback = progress =>
-                ChunkProgressUpdateCallback?.Invoke(progress),
-
-            StatusTextCallback = text =>
-                StatusTextCallback?.Invoke(text),
-
-            DownloadCompletedCallback = () =>
-                ChunkDownloadCompletedCallback?.Invoke(),
-
-            DownloadCancelledCallback = () =>
-                DownloadCancelledCallback?.Invoke()
+            ProgressUpdateCallback = progress => ChunkProgressUpdateCallback?.Invoke(progress),
+            StatusTextCallback = text => StatusTextCallback?.Invoke(text),
+            DownloadCompletedCallback = () => ChunkDownloadCompletedCallback?.Invoke(),
+            DownloadCancelledCallback = () => DownloadCancelledCallback?.Invoke()
         };
 
         try
@@ -162,7 +155,6 @@ public sealed class SophonCoreDownloader : IDisposable
     public void Dispose()
     {
         if (_disposed) return;
-
         _disposed = true;
         DisposeChunkDownloader();
         DisposeChunkExtractor();

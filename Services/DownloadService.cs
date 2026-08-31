@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using System.Text.RegularExpressions;
 
 namespace SophonDownloader.Services;
@@ -57,6 +56,8 @@ public sealed class DownloadService : IDisposable
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     private readonly Aria2c _aria2c = new();
+    private string _logJobId = "n/a";
+    private string _logJobTitle = "n/a";
 
     private readonly HttpClient _http;
 
@@ -72,6 +73,14 @@ public sealed class DownloadService : IDisposable
     private readonly object _stateLock = new();
     private TaskCompletionSource<bool> _resumeSource = CreateCompletedSource();
     private readonly object _aggregateLock = new();
+
+    public void SetLogContext(string jobId, string jobTitle)
+    {
+        _logJobId = string.IsNullOrWhiteSpace(jobId) ? "n/a" : jobId;
+        _logJobTitle = string.IsNullOrWhiteSpace(jobTitle) ? "n/a" : jobTitle;
+    }
+
+    private string JobContext => $"Job={_logJobId}; Title=\"{_logJobTitle}\"";
     private readonly UnifiedTransferMetrics _transferMetrics = new();
     private readonly Dictionary<int, long> _legacyFileInitialBytes = new();
     private readonly Dictionary<int, long> _legacyFileTotalBytes = new();
@@ -105,8 +114,20 @@ public sealed class DownloadService : IDisposable
                 TaskCreationOptions.RunContinuationsAsynchronously);
         }
 
-        Logger.Info("Legacy download paused.");
+        Logger.Info($"Legacy download paused. {JobContext}");
         _aria2c.Pause();
+    }
+
+    public void Cancel()
+    {
+        if (_disposed)
+            return;
+
+        try { _aria2c.Cancel(); }
+        catch (Exception ex)
+        {
+            Logger.Debug(ex, $"Legacy download process cancellation failed. {JobContext}");
+        }
     }
 
     public void Resume()
@@ -127,14 +148,11 @@ public sealed class DownloadService : IDisposable
         }
 
         source.TrySetResult(true);
-        Logger.Info("Legacy download resumed.");
+        Logger.Info($"Legacy download resumed. {JobContext}");
     }
 
     public async Task DownloadAllAsync(
-        List<string> urls,
-        string destFolder,
-        IProgress<DownloadProgressInfo> progress,
-        CancellationToken ct)
+        List<string> urls, string destFolder, IProgress<DownloadProgressInfo> progress, CancellationToken ct)
     {
         ThrowIfDisposed();
 
@@ -148,11 +166,9 @@ public sealed class DownloadService : IDisposable
             throw new ArgumentException("Destination folder cannot be empty.", nameof(destFolder));
 
         Directory.CreateDirectory(destFolder);
-
         ResetAggregateLegacyMetrics();
         await PrepareLegacyAggregateTotalsAsync(urls, destFolder, ct);
-
-        Logger.Info($"Legacy download started. Files: {urls.Count:N0}, Destination: {destFolder}");
+        Logger.Info($"Legacy download started. {JobContext}; Files={urls.Count:N0}; Destination={destFolder}");
 
         try
         {
@@ -184,11 +200,11 @@ public sealed class DownloadService : IDisposable
                 await DownloadOneAsync(url, finalPath, currentIndex, urls.Count, progress, ct);
             }
 
-            Logger.Info("Legacy download completed successfully.");
+            Logger.Info($"Legacy download completed successfully. {JobContext}");
         }
         catch (OperationCanceledException)
         {
-            Logger.Info("Legacy download cancelled.");
+            Logger.Info($"Legacy download cancelled. {JobContext}");
             throw;
         }
         catch (Exception ex)
@@ -196,22 +212,13 @@ public sealed class DownloadService : IDisposable
             Logger.Error(ex, "Legacy download failed.");
             throw;
         }
-        finally
-        {
-            Resume();
-        }
+        finally { Resume(); }
     }
 
     private async Task DownloadOneAsync(
-        string url,
-        string finalPath,
-        int fileIndex,
-        int fileCount,
-        IProgress<DownloadProgressInfo> progress,
-        CancellationToken ct)
+        string url, string finalPath, int fileIndex, int fileCount, IProgress<DownloadProgressInfo> progress, CancellationToken ct)
     {
         ThrowIfDisposed();
-
         string fileName = Path.GetFileName(finalPath);
 
         if (!AppSettingsStore.Load().UseAria2c)
@@ -221,22 +228,15 @@ public sealed class DownloadService : IDisposable
         }
 
         await TryValidateRemoteResourceAsync(url, ct);
-
         long? totalBytes = await TryGetRemoteLengthAsync(url, ct);
-
-        Logger.Info(
-            $"Legacy remote file: {fileName}, size: " +
-            $"{(totalBytes.HasValue ? $"{totalBytes.Value:N0} bytes" : "unknown")}");
-
-        ReportLegacyAggregateProgress(
-            fileName, fileIndex, fileCount, 0, totalBytes, 0, progress, true);
-
+        Logger.Info($"Legacy remote file: {fileName}, size: " + $"{(totalBytes.HasValue ? $"{totalBytes.Value:N0} bytes" : "unknown")}");
+        ReportLegacyAggregateProgress(fileName, fileIndex, fileCount, 0, totalBytes, 0, progress, true);
         string? lastOutput = null;
         int exitCode;
 
         try
         {
-            Logger.Info($"Starting aria2c download: {fileName}");
+            Logger.Info($"Starting aria2c download. {JobContext}; File={fileName}");
 
             exitCode = await _aria2c.RunAsync(
                 url, Path.GetDirectoryName(finalPath)!, fileName, 0, line =>
@@ -251,14 +251,9 @@ public sealed class DownloadService : IDisposable
                         RegisterLegacyFileTotal(fileIndex, currentTotal);
 
                     ReportLegacyAggregateProgress(
-                        fileName,
-                        fileIndex,
-                        fileCount,
-                        ariaProgress.BytesReceived,
-                        ariaProgress.TotalBytes ?? totalBytes,
+                        fileName, fileIndex, fileCount, ariaProgress.BytesReceived, ariaProgress.TotalBytes ?? totalBytes,
                         ariaProgress.Percent ?? CalculatePercent(ariaProgress.BytesReceived, ariaProgress.TotalBytes ?? totalBytes),
-                        progress,
-                        false);
+                        progress, false);
                 },
                 ct,
                 Math.Clamp(AppSettingsStore.Load().MaxHttpHandle, 1, 256),
@@ -272,7 +267,7 @@ public sealed class DownloadService : IDisposable
         }
         catch (OperationCanceledException)
         {
-            Logger.Info($"aria2c download cancelled: {fileName}");
+            Logger.Info($"aria2c download cancelled. {JobContext}; File={fileName}");
             throw;
         }
         catch (Exception ex)
@@ -284,10 +279,8 @@ public sealed class DownloadService : IDisposable
         if (IsPaused)
         {
             Logger.Info($"Download interrupted by pause state: {fileName}");
-
             await WaitIfPausedAsync(ct);
             await DownloadOneAsync(url, finalPath, fileIndex, fileCount, progress, ct);
-
             return;
         }
 
@@ -296,7 +289,6 @@ public sealed class DownloadService : IDisposable
         if (exitCode != 0)
         {
             Logger.Error($"aria2c failed for {fileName} with exit code {exitCode}. Last output: {lastOutput}");
-
             throw BuildDownloadException(exitCode, lastOutput, url, fileName);
         }
 
@@ -305,10 +297,8 @@ public sealed class DownloadService : IDisposable
             Logger.Error($"aria2c completed but file was not found: {finalPath}");
 
             throw new DownloadException(
-                DownloadErrorType.ProcessError,
-                "The download process completed, but the downloaded file was not found.",
-                url, fileName: fileName,
-                processExitCode: exitCode);
+                DownloadErrorType.ProcessError, "The download process completed, but the downloaded file was not found.",
+                url, fileName: fileName, processExitCode: exitCode);
         }
 
         long downloadedSize = new FileInfo(finalPath).Length;
@@ -318,10 +308,8 @@ public sealed class DownloadService : IDisposable
             Logger.Error($"Invalid file size for {fileName}. Expected {totalBytes.Value:N0}, got {downloadedSize:N0}.");
 
             throw new DownloadException(
-                DownloadErrorType.ProcessError,
-                $"The downloaded file size is invalid. Expected {totalBytes.Value} bytes, got {downloadedSize} bytes.",
-                url, fileName: fileName,
-                processExitCode: exitCode);
+                DownloadErrorType.ProcessError, $"The downloaded file size is invalid. Expected {totalBytes.Value} bytes, got {downloadedSize} bytes.",
+                url, fileName: fileName, processExitCode: exitCode);
         }
 
         string controlPath = finalPath + ".aria2";
@@ -339,20 +327,13 @@ public sealed class DownloadService : IDisposable
             }
         }
 
-        ReportLegacyAggregateProgress(
-            fileName, fileIndex, fileCount, downloadedSize, totalBytes ?? downloadedSize, 100, progress, true);
+        ReportLegacyAggregateProgress(fileName, fileIndex, fileCount, downloadedSize, totalBytes ?? downloadedSize, 100, progress, true);
         CommitLegacyFile(fileIndex, downloadedSize, totalBytes ?? downloadedSize);
-
-        Logger.Info($"Legacy file download completed: {fileName} ({downloadedSize:N0} bytes)");
+        Logger.Info($"Legacy file download completed. {JobContext}; File={fileName}; Bytes={downloadedSize:N0}");
     }
 
     private async Task DownloadOneWithHttpAsync(
-        string url,
-        string finalPath,
-        int fileIndex,
-        int fileCount,
-        IProgress<DownloadProgressInfo> progress,
-        CancellationToken ct)
+        string url, string finalPath, int fileIndex, int fileCount, IProgress<DownloadProgressInfo> progress, CancellationToken ct)
     {
         ThrowIfDisposed();
 
@@ -382,10 +363,8 @@ public sealed class DownloadService : IDisposable
         {
             DownloadException httpError = CreateHttpDownloadException(url, response.StatusCode);
             throw new DownloadException(
-                httpError.ErrorType,
-                $"HTTP download failed: {(int)response.StatusCode} {response.ReasonPhrase}",
-                url, (int)response.StatusCode, fileName: fileName,
-                innerException: httpError);
+                httpError.ErrorType, $"HTTP download failed: {(int)response.StatusCode} {response.ReasonPhrase}",
+                url, (int)response.StatusCode, fileName: fileName, innerException: httpError);
         }
 
         bool resumeAccepted = existingBytes > 0 && response.StatusCode == HttpStatusCode.PartialContent;
@@ -405,12 +384,7 @@ public sealed class DownloadService : IDisposable
 
         await using Stream input = await response.Content.ReadAsStreamAsync(ct);
         await using var output = new FileStream(
-            finalPath,
-            resumeAccepted ? FileMode.Append : FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            1024 * 1024,
-            FileOptions.Asynchronous | FileOptions.SequentialScan);
+            finalPath, resumeAccepted ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None, 1024 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
         byte[] buffer = new byte[1024 * 1024];
         while (true)
@@ -437,16 +411,7 @@ public sealed class DownloadService : IDisposable
             double elapsed = (now - lastSample).TotalSeconds;
             if (elapsed >= 0.25)
             {
-                ReportLegacyAggregateProgress(
-                    fileName,
-                    fileIndex,
-                    fileCount,
-                    downloaded,
-                    totalBytes,
-                    CalculatePercent(downloaded, totalBytes),
-                    progress,
-                    false);
-
+                ReportLegacyAggregateProgress(fileName, fileIndex, fileCount, downloaded, totalBytes, CalculatePercent(downloaded, totalBytes), progress, false);
                 lastSample = now;
                 lastSampleBytes = downloaded;
             }
@@ -457,12 +422,10 @@ public sealed class DownloadService : IDisposable
 
         if (totalBytes is > 0 && downloaded != totalBytes.Value)
             throw new DownloadException(
-                DownloadErrorType.ProcessError,
-                $"The downloaded file size is invalid. Expected {totalBytes.Value} bytes, got {downloaded} bytes.",
+                DownloadErrorType.ProcessError, $"The downloaded file size is invalid. Expected {totalBytes.Value} bytes, got {downloaded} bytes.",
                 url, fileName: fileName);
 
-        ReportLegacyAggregateProgress(
-            fileName, fileIndex, fileCount, downloaded, totalBytes ?? downloaded, 100, progress, true);
+        ReportLegacyAggregateProgress(fileName, fileIndex, fileCount, downloaded, totalBytes ?? downloaded, 100, progress, true);
         CommitLegacyFile(fileIndex, downloaded, totalBytes ?? downloaded);
         Logger.Info($"HTTP file download completed: {fileName} ({downloaded:N0} bytes)");
     }
@@ -481,10 +444,7 @@ public sealed class DownloadService : IDisposable
         }
     }
 
-    private async Task PrepareLegacyAggregateTotalsAsync(
-        IReadOnlyList<string> urls,
-        string destFolder,
-        CancellationToken ct)
+    private async Task PrepareLegacyAggregateTotalsAsync(IReadOnlyList<string> urls, string destFolder, CancellationToken ct)
     {
         bool allKnown = true;
         long knownTotal = 0;
@@ -524,10 +484,7 @@ public sealed class DownloadService : IDisposable
                     knownTotal = long.MaxValue;
                 }
             }
-            else
-            {
-                allKnown = false;
-            }
+            else { allKnown = false; }
         }
 
         lock (_aggregateLock)
@@ -616,14 +573,8 @@ public sealed class DownloadService : IDisposable
     }
 
     private void ReportLegacyAggregateProgress(
-        string fileName,
-        int fileIndex,
-        int fileCount,
-        long currentFileAvailableBytes,
-        long? currentFileTotalBytes,
-        double? currentFilePercent,
-        IProgress<DownloadProgressInfo> progress,
-        bool force)
+        string fileName, int fileIndex, int fileCount, long currentFileAvailableBytes, long? currentFileTotalBytes,
+        double? currentFilePercent, IProgress<DownloadProgressInfo> progress, bool force)
     {
         UnifiedTransferMetricsSnapshot metrics;
         long aggregateAvailable;
@@ -646,10 +597,7 @@ public sealed class DownloadService : IDisposable
             aggregateTotal = allTotalsKnown ? _legacyKnownTotalBytes : 0;
 
             _transferMetrics.SetTotalBytes(aggregateTotal);
-            metrics = _transferMetrics.Update(
-                aggregateAvailable,
-                aggregateTransferred,
-                force);
+            metrics = _transferMetrics.Update(aggregateAvailable, aggregateTransferred, force);
         }
 
         double? aggregatePercent = aggregateTotal > 0
@@ -703,12 +651,8 @@ public sealed class DownloadService : IDisposable
                 return;
             }
 
-            DownloadException exception = CreateHttpDownloadException(
-                url,
-                response.StatusCode);
-
+            DownloadException exception = CreateHttpDownloadException(url, response.StatusCode);
             Logger.Error(exception, $"HEAD validation failed: {url}");
-
             throw exception;
         }
         catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
@@ -719,22 +663,15 @@ public sealed class DownloadService : IDisposable
         {
             Logger.Warn(ex, $"HEAD validation encountered a network error. Continuing to aria2c: {url}");
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (DownloadException)
-        {
-            throw;
-        }
+        catch (OperationCanceledException) { throw; }
+        catch (DownloadException) { throw; }
         catch (Exception ex)
         {
             Logger.Warn(ex, $"HEAD validation failed unexpectedly. Continuing to aria2c: {url}");
         }
     }
 
-    private async Task TryRangeValidationAsync(
-        string url, CancellationToken ct)
+    private async Task TryRangeValidationAsync(string url, CancellationToken ct)
     {
         try
         {
@@ -744,18 +681,14 @@ public sealed class DownloadService : IDisposable
             using HttpResponseMessage response = await _http.SendAsync(
                 request, HttpCompletionOption.ResponseHeadersRead, ct);
 
-            if (response.IsSuccessStatusCode ||
-                response.StatusCode == HttpStatusCode.PartialContent)
+            if (response.IsSuccessStatusCode || response.StatusCode == HttpStatusCode.PartialContent)
             {
                 Logger.Debug($"Range validation succeeded: {url}");
                 return;
             }
 
-            DownloadException exception = CreateHttpDownloadException(
-                url, response.StatusCode);
-
+            DownloadException exception = CreateHttpDownloadException(url, response.StatusCode);
             Logger.Error(exception, $"Range validation failed: {url}");
-
             throw exception;
         }
         catch (TaskCanceledException ex) when (!ct.IsCancellationRequested)
@@ -766,26 +699,17 @@ public sealed class DownloadService : IDisposable
         {
             Logger.Warn(ex, $"Range validation encountered a network error. Continuing to aria2c: {url}");
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (DownloadException)
-        {
-            throw;
-        }
+        catch (OperationCanceledException) { throw; }
+        catch (DownloadException) { throw; }
         catch (Exception ex)
         {
             Logger.Warn(ex, $"Range validation failed unexpectedly. Continuing to aria2c: {url}");
         }
     }
 
-    private static DownloadException CreateHttpDownloadException(
-        string url,
-        HttpStatusCode statusCode)
+    private static DownloadException CreateHttpDownloadException(string url, HttpStatusCode statusCode)
     {
         int status = (int)statusCode;
-
         return status switch
         {
             401 => new DownloadException(
@@ -829,74 +753,55 @@ public sealed class DownloadService : IDisposable
         int exitCode, string? lastOutput, string url, string fileName)
     {
         Match? statusMatch = string.IsNullOrWhiteSpace(lastOutput)
-            ? null
-            : HttpStatusRegex.Match(lastOutput);
+            ? null : HttpStatusRegex.Match(lastOutput);
 
         if (statusMatch?.Success == true &&
-            int.TryParse(
-                statusMatch.Groups["status"].Value,
-                out int status))
+            int.TryParse(statusMatch.Groups["status"].Value, out int status))
         {
-            return CreateHttpDownloadException(
-                url,
-                (HttpStatusCode)status);
+            return CreateHttpDownloadException(url, (HttpStatusCode)status);
         }
 
         if (exitCode == 2)
         {
             return new DownloadException(
-                DownloadErrorType.Timeout,
-                "The download server or network connection timed out.",
-                url, fileName: fileName,
-                processExitCode: exitCode);
+                DownloadErrorType.Timeout, "The download server or network connection timed out.",
+                url, fileName: fileName, processExitCode: exitCode);
         }
 
         if (exitCode == 6)
         {
             return new DownloadException(
-                DownloadErrorType.NetworkError,
-                "A network error occurred while downloading the file.",
-                url, fileName: fileName,
-                processExitCode: exitCode);
+                DownloadErrorType.NetworkError, "A network error occurred while downloading the file.",
+                url, fileName: fileName, processExitCode: exitCode);
         }
 
         if (exitCode == 3 || exitCode == 4)
         {
             return new DownloadException(
-                DownloadErrorType.NotFound,
-                "The requested file could not be found on the download server.",
-                url, fileName: fileName,
-                processExitCode: exitCode);
+                DownloadErrorType.NotFound, "The requested file could not be found on the download server.",
+                url, fileName: fileName, processExitCode: exitCode);
         }
 
         if (exitCode == 8)
         {
             return new DownloadException(
-                DownloadErrorType.ProcessError,
-                "The server does not support resuming this download.",
-                url, fileName: fileName,
-                processExitCode: exitCode);
+                DownloadErrorType.ProcessError, "The server does not support resuming this download.",
+                url, fileName: fileName, processExitCode: exitCode);
         }
 
         if (string.IsNullOrWhiteSpace(lastOutput))
         {
             return new DownloadException(
-                DownloadErrorType.ProcessError,
-                $"The download process failed with exit code {exitCode}.",
-                url, fileName: fileName,
-                processExitCode: exitCode);
+                DownloadErrorType.ProcessError, $"The download process failed with exit code {exitCode}.",
+                url, fileName: fileName, processExitCode: exitCode);
         }
 
         return new DownloadException(
-            DownloadErrorType.ProcessError,
-            $"The download process failed with exit code {exitCode}. Last output: {lastOutput}",
-            url, fileName: fileName,
-            processExitCode: exitCode);
+            DownloadErrorType.ProcessError, $"The download process failed with exit code {exitCode}. Last output: {lastOutput}",
+            url, fileName: fileName, processExitCode: exitCode);
     }
 
-    private static double? CalculatePercent(
-        long bytesReceived,
-        long? totalBytes)
+    private static double? CalculatePercent(long bytesReceived, long? totalBytes)
     {
         if (totalBytes is not > 0)
             return null;
@@ -904,8 +809,7 @@ public sealed class DownloadService : IDisposable
         return Math.Clamp(bytesReceived * 100d / totalBytes.Value, 0, 100);
     }
 
-    private async Task<long?> TryGetRemoteLengthAsync(
-        string url, CancellationToken ct)
+    private async Task<long?> TryGetRemoteLengthAsync(string url, CancellationToken ct)
     {
         ThrowIfDisposed();
 
@@ -991,16 +895,14 @@ public sealed class DownloadService : IDisposable
         if (!Uri.TryCreate(
                 url, UriKind.Absolute, out Uri? uri))
         {
-            throw new DownloadException(
-                DownloadErrorType.InvalidUrl, "The download URL is invalid.", url);
+            throw new DownloadException(DownloadErrorType.InvalidUrl, "The download URL is invalid.", url);
         }
 
         string fileName = Path.GetFileName(uri.LocalPath);
 
         if (string.IsNullOrWhiteSpace(fileName))
         {
-            throw new DownloadException(
-                DownloadErrorType.InvalidUrl, "Could not determine the file name from the download URL.", url);
+            throw new DownloadException(DownloadErrorType.InvalidUrl, "Could not determine the file name from the download URL.", url);
         }
 
         return fileName;
@@ -1028,10 +930,7 @@ public sealed class DownloadService : IDisposable
         _disposed = true;
         Logger.Info("Legacy DownloadService disposing.");
 
-        try
-        {
-            _http.Dispose();
-        }
+        try { _http.Dispose(); }
         catch (Exception ex)
         {
             Logger.Warn(ex, "Failed to dispose Legacy HTTP client.");

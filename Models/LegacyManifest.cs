@@ -1,5 +1,3 @@
-using System.Text.Json.Serialization;
-
 namespace SophonDownloader.Models;
 
 public sealed class LegacyManifest : Dictionary<string, LegacyVersion> {}

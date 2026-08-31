@@ -16,7 +16,7 @@ public partial class MainWindow : Window
     private Brush SideNavActiveBrush => (Brush)Resources["AccentBrush"];
 
     private enum DownloaderMode { Legacy, Sophon }
-    private enum LegacyDownloadMode { Full, Update }
+    private enum LegacyDownloadMode { Full, PatchDownload }
     private enum SophonDownloadMode { Full, Patch }
     private enum MainPage { Dashboard, Downloads, Settings, Updates, About, License }
 
@@ -24,10 +24,14 @@ public partial class MainWindow : Window
     private readonly SophonDownloadService _sophonDownloadService = new();
     private readonly HttpClient _connectivityClient = new() { Timeout = TimeSpan.FromSeconds(3) };
     private readonly DispatcherTimer _connectivityTimer;
+    private readonly DispatcherTimer _distributionNoticeTimer;
 
     private CancellationTokenSource? _connectivityCts;
     private CancellationTokenSource? _legacyManifestCts;
     private CancellationTokenSource? _sophonManifestCts;
+
+    private bool _distributionNoticeShowing;
+    private int _distributionNoticeMarqueeRuns;
 
     private List<GameOption> _legacyGames = [];
     private LegacyManifest _legacyManifest = new();
@@ -48,14 +52,23 @@ public partial class MainWindow : Window
     private bool _legacyManifestLoading;
     private bool _sophonDestinationCustomized;
     private bool _legacyContentUpdating;
+    private bool _exploreActive;
+    private MainPage _pageBeforeExplore = MainPage.Dashboard;
 
     private string DefaultDownloadDirectory => Utility.GetApplicationDirectory();
 
     public string GetSophonDestinationDirectory() => SophonDestinationTextBox.Text.Trim();
 
+    private static string DecodeDistributionMarqueeNotice()
+    {
+        const string encoded = "U29waG9uIERvd25sb2FkZXIgaXMgZnJlZSBzb2Z0d2FyZS4gV2UgZG9uJ3Qgc2VsbCBpdC4gSWYgc29tZW9uZSBjaGFyZ2VzIHlvdSBmb3IgaXQsIGl0J3MgYSBzY2FtISBCZXdhcmUh";
+        return System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
+    }
+
     public MainWindow()
     {
         InitializeComponent();
+        DistributionNoticeMarqueeText.Text = DecodeDistributionMarqueeNotice();
 
         AppVersionText.Text = $"• v{App.Version}";
         SidePanelVersionText.Text = $"v{App.Version}";
@@ -63,9 +76,12 @@ public partial class MainWindow : Window
 
         _connectivityTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
         _connectivityTimer.Tick += ConnectivityTimer_Tick;
+
+        _distributionNoticeTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(10) };
+        _distributionNoticeTimer.Tick += DistributionNoticeTimer_Tick;
         NetworkChange.NetworkAvailabilityChanged += NetworkAvailabilityChanged;
         Loaded += MainWindow_Loaded;
-        Closed += MainWindow_Closed;
+        Closing += MainWindow_Closing;
         SizeChanged += MainWindow_SizeChanged;
 
         SettingsView.SettingsChanged += SettingsView_SettingsChanged;
@@ -82,6 +98,7 @@ public partial class MainWindow : Window
     {
         ApplySettingsTheme(settings);
         StatusFromSettings(settings);
+        DownloadsView.RefreshScheduler();
     }
 
     private void StatusFromSettings(AppSettings settings)
@@ -209,7 +226,7 @@ public partial class MainWindow : Window
         SophonDestinationTextBox.Text = directory;
         _sophonDestinationCustomized = false;
 
-        LegacyUpdateSourcePanel.Visibility = Visibility.Collapsed;
+        LegacyPatchSourcePanel.Visibility = Visibility.Collapsed;
         LegacyExplorerButton.Visibility = Visibility.Collapsed;
         SophonExplorerButton.Visibility = Visibility.Collapsed;
 
@@ -228,9 +245,99 @@ public partial class MainWindow : Window
         SetMode(DownloaderMode.Sophon);
         SetMainPage(MainPage.Dashboard);
         StartupOverlay.Visibility = Visibility.Collapsed;
+
+        ShowDistributionNoticeMarquee();
     }
 
-    private void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateRootClip();
+    private void MainWindow_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        UpdateRootClip();
+    }
+
+    private void DistributionNoticeTimer_Tick(object? sender, EventArgs e)
+    {
+        _distributionNoticeTimer.Stop();
+
+        if (_shutdownCleanupStarted)
+            return;
+
+        ShowDistributionNoticeMarquee();
+    }
+
+    private void ShowDistributionNoticeMarquee()
+    {
+        if (_shutdownCleanupStarted || _distributionNoticeShowing)
+            return;
+
+        _distributionNoticeShowing = true;
+        _distributionNoticeMarqueeRuns = 0;
+        DistributionNoticeRow.Height = new GridLength(28);
+        DistributionNoticeMarqueeBorder.Visibility = Visibility.Visible;
+
+        Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(StartDistributionNoticeMarqueeRun));
+    }
+
+    private void StartDistributionNoticeMarqueeRun()
+    {
+        if (_shutdownCleanupStarted || !_distributionNoticeShowing)
+            return;
+
+        double viewportWidth = DistributionNoticeMarqueeBorder.ActualWidth;
+        double textWidth = DistributionNoticeMarqueeText.ActualWidth;
+
+        if (viewportWidth <= 0 || textWidth <= 0)
+        {
+            Dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(StartDistributionNoticeMarqueeRun));
+            return;
+        }
+
+        DistributionNoticeMarqueeTransform.BeginAnimation(TranslateTransform.XProperty, null);
+        DistributionNoticeMarqueeTransform.X = viewportWidth;
+
+        double travelDistance = viewportWidth + textWidth;
+        double pixelsPerSecond = 90.0;
+        double durationSeconds = Math.Clamp(travelDistance / pixelsPerSecond, 8.0, 28.0);
+
+        var animation = new DoubleAnimation
+        {
+            From = viewportWidth,
+            To = -textWidth,
+            Duration = TimeSpan.FromSeconds(durationSeconds),
+            AutoReverse = false
+        };
+
+        animation.Completed += DistributionNoticeMarqueeRunCompleted;
+        DistributionNoticeMarqueeTransform.BeginAnimation(
+            TranslateTransform.XProperty,
+            animation,
+            HandoffBehavior.SnapshotAndReplace);
+    }
+
+    private void DistributionNoticeMarqueeRunCompleted(object? sender, EventArgs e)
+    {
+        if (sender is AnimationClock clock)
+            clock.Completed -= DistributionNoticeMarqueeRunCompleted;
+
+        if (_shutdownCleanupStarted || !_distributionNoticeShowing)
+            return;
+
+        _distributionNoticeMarqueeRuns++;
+
+        if (_distributionNoticeMarqueeRuns < 3)
+        {
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.Render,
+                new Action(StartDistributionNoticeMarqueeRun));
+            return;
+        }
+
+        DistributionNoticeMarqueeTransform.BeginAnimation(TranslateTransform.XProperty, null);
+        DistributionNoticeMarqueeTransform.X = 0;
+        _distributionNoticeShowing = false;
+        DistributionNoticeMarqueeBorder.Visibility = Visibility.Collapsed;
+        DistributionNoticeRow.Height = new GridLength(0);
+        _distributionNoticeTimer.Start();
+    }
 
     private void UpdateRootClip()
     {
@@ -242,60 +349,44 @@ public partial class MainWindow : Window
             new Rect(0, 0, RootContentBorder.ActualWidth, RootContentBorder.ActualHeight), radius, radius);
     }
 
-    private void MainWindow_Closed(object? sender, EventArgs e)
+    private bool _shutdownCleanupStarted;
+    internal bool IsShuttingDown => _shutdownCleanupStarted;
+
+    private void MainWindow_Closing(object? sender, CancelEventArgs e)
     {
-        Logger.Info("MainWindow closing. Flushing pending settings before shutdown.");
+        if (_shutdownCleanupStarted)
+            return;
+
+        _shutdownCleanupStarted = true;
+        Logger.Info("MainWindow closing. Performing hard shutdown.");
+
+        try { SettingsView.FlushPendingAutoSave(); }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Failed to flush pending settings during hard shutdown.");
+        }
 
         try
         {
-            SettingsView.FlushPendingAutoSave();
+            NetworkChange.NetworkAvailabilityChanged -= NetworkAvailabilityChanged;
+            _connectivityTimer.Stop();
+            _distributionNoticeTimer.Stop();
+            DistributionNoticeMarqueeTransform.BeginAnimation(TranslateTransform.XProperty, null);
+            _distributionNoticeShowing = false;
         }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "Failed to flush pending settings during shutdown.");
-        }
+        catch {}
 
-        Logger.Info("Settings flushed. Shutting down download queue.");
-
-        NetworkChange.NetworkAvailabilityChanged -= NetworkAvailabilityChanged;
-        _connectivityTimer.Stop();
-
-        try
-        {
-            DownloadsView.ShutdownDownloads();
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "Failed to shutdown download queue.");
-        }
+        try { DownloadsView.HardStopDownloads(); } catch {}
 
         CancelDispose(ref _connectivityCts);
         CancelDispose(ref _legacyManifestCts);
         CancelDispose(ref _sophonManifestCts);
 
-        try
-        {
-            _sophonDownloadService.Dispose();
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "Failed to dispose MainWindow Sophon service.");
-        }
+        try { _sophonDownloadService.Dispose(); } catch {}
+        try { _connectivityClient.Dispose(); } catch {}
+        try { KillAria2Processes(); } catch {}
 
-        try
-        {
-            _connectivityClient.Dispose();
-        }
-        catch {}
-
-        try
-        {
-            KillAria2Processes();
-        }
-        catch (Exception ex)
-        {
-            Logger.Error(ex, "Failed to terminate remaining aria2c processes.");
-        }
+        Environment.Exit(0);
     }
 
     private static void KillAria2Processes() => Aria2c.KillAllProcesses();
@@ -322,6 +413,27 @@ public partial class MainWindow : Window
             ? (Brush)Resources["HeaderForegroundBrush"]
             : (Brush)Resources["SecondaryTextBrush"];
     }
+    private void EnterExplore(UserControl explorer)
+    {
+        ArgumentNullException.ThrowIfNull(explorer);
+        _pageBeforeExplore = _currentPage;
+        _exploreActive = true;
+        ExploreHost.Child = explorer;
+        ExploreHost.Visibility = Visibility.Visible;
+    }
+
+    internal void CloseExplore()
+    {
+        if (!_exploreActive)
+            return;
+
+        MainPage returnPage = _currentPage;
+        _exploreActive = false;
+        ExploreHost.Child = null;
+        ExploreHost.Visibility = Visibility.Collapsed;
+        SetMainPage(returnPage);
+    }
+
     private void SetMainPage(MainPage page)
     {
         _currentPage = page;
@@ -355,7 +467,7 @@ public partial class MainWindow : Window
         StartupLoadingScaleTransform.BeginAnimation(ScaleTransform.ScaleXProperty, null);
         StartupLoadingScaleTransform.BeginAnimation(ScaleTransform.ScaleYProperty, null);
 
-        await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+        await Dispatcher.InvokeAsync(() => {}, System.Windows.Threading.DispatcherPriority.Render);
 
         StartupOverlay.Opacity = 0.0;
         StartupLoadingScaleTransform.ScaleX = 0.96;
@@ -533,9 +645,7 @@ public partial class MainWindow : Window
             try
             {
                 using HttpResponseMessage response = await _connectivityClient.GetAsync(
-                    url,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    ct);
+                    url, HttpCompletionOption.ResponseHeadersRead, ct);
 
                 if ((int)response.StatusCode is >= 200 and < 400)
                     return true;
@@ -593,11 +703,10 @@ public partial class MainWindow : Window
             if (preserveSelection && !string.IsNullOrWhiteSpace(selectedVersion))
                 VersionComboBox.SelectedItem = selectedVersion;
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) {}
         catch (Exception ex)
         {
             Logger.Error(ex, "Failed to load online Legacy games.");
-
             GameComboBox.ItemsSource = null;
             VersionComboBox.ItemsSource = null;
             LegacyContentItemsControl.ItemsSource = null;
@@ -659,7 +768,7 @@ public partial class MainWindow : Window
         {
             ClearLegacyVersionContent();
             UpdateLegacyAvailabilityUI();
-            UpdateLegacyUpdateVersions();
+            UpdateLegacyPatchSourceVersions();
             return;
         }
 
@@ -669,13 +778,13 @@ public partial class MainWindow : Window
         {
             ClearLegacyVersionContent();
             UpdateLegacyAvailabilityUI();
-            UpdateLegacyUpdateVersions();
+            UpdateLegacyPatchSourceVersions();
             return;
         }
 
         UpdateLegacyContentOptions(entry);
         UpdateLegacyAvailabilityUI();
-        UpdateLegacyUpdateVersions();
+        UpdateLegacyPatchSourceVersions();
         UpdateLegacyExplorerVisibility();
     }
 
@@ -735,17 +844,13 @@ public partial class MainWindow : Window
                         string? url = ManifestResolver.BuildFullVoiceUrl(version, voiceCode);
                         valid = ManifestResolver.HasValidUrl(url);
                     }
-                    catch
-                    {
-                        valid = false;
-                    }
+                    catch { valid = false; }
                 }
                 else
                 {
                     valid = version.Update.Values.Any(update =>
                         update.Voice.TryGetValue(voiceCode, out LegacyPackage? package) &&
-                        package is not null &&
-                        ManifestResolver.HasValidUrl(package.Url));
+                        package is not null && ManifestResolver.HasValidUrl(package.Url));
                 }
 
                 if (!valid)
@@ -799,7 +904,7 @@ public partial class MainWindow : Window
             return;
 
         UpdateLegacyContentSummary();
-        UpdateLegacyUpdateVersions();
+        UpdateLegacyPatchSourceVersions();
         UpdateLegacyExplorerVisibility();
     }
 
@@ -824,7 +929,7 @@ public partial class MainWindow : Window
             return;
 
         _legacyDownloadMode = LegacyDownloadModeComboBox.SelectedIndex == 1
-            ? LegacyDownloadMode.Update
+            ? LegacyDownloadMode.PatchDownload
             : LegacyDownloadMode.Full;
 
         if (_mode == DownloaderMode.Legacy && VersionComboBox.SelectedItem is string selectedVersion)
@@ -835,7 +940,7 @@ public partial class MainWindow : Window
                 UpdateLegacyContentOptions(version);
 
             UpdateLegacyAvailabilityUI();
-            UpdateLegacyUpdateVersions();
+            UpdateLegacyPatchSourceVersions();
             UpdateLegacyExplorerVisibility();
         }
     }
@@ -846,7 +951,7 @@ public partial class MainWindow : Window
             ? LegacyDownloadModeComboBox.Items[0] as ComboBoxItem
             : null;
 
-        ComboBoxItem? updateDownloadItem = LegacyDownloadModeComboBox.Items.Count > 1
+        ComboBoxItem? patchDownloadItem = LegacyDownloadModeComboBox.Items.Count > 1
             ? LegacyDownloadModeComboBox.Items[1] as ComboBoxItem
             : null;
 
@@ -855,23 +960,23 @@ public partial class MainWindow : Window
             : null;
 
         bool fullAvailable = version is not null && ManifestResolver.HasAnyFullDownload(version);
-        bool updateAvailable = version is not null && ManifestResolver.HasAnyUpdateDownload(version);
+        bool patchAvailable = version is not null && ManifestResolver.HasAnyUpdateDownload(version);
 
         if (fullDownloadItem is not null)
             fullDownloadItem.Visibility = fullAvailable ? Visibility.Visible : Visibility.Collapsed;
 
-        if (updateDownloadItem is not null)
-            updateDownloadItem.Visibility = updateAvailable ? Visibility.Visible : Visibility.Collapsed;
+        if (patchDownloadItem is not null)
+            patchDownloadItem.Visibility = patchAvailable ? Visibility.Visible : Visibility.Collapsed;
 
-        EnsureValidLegacyDownloadModeSelection(fullAvailable, updateAvailable);
+        EnsureValidLegacyDownloadModeSelection(fullAvailable, patchAvailable);
     }
 
-    private void EnsureValidLegacyDownloadModeSelection(bool fullAvailable, bool updateAvailable)
+    private void EnsureValidLegacyDownloadModeSelection(bool fullAvailable, bool patchAvailable)
     {
         bool currentFull = LegacyDownloadModeComboBox.SelectedIndex == 0;
-        bool currentUpdate = LegacyDownloadModeComboBox.SelectedIndex == 1;
+        bool currentPatch = LegacyDownloadModeComboBox.SelectedIndex == 1;
 
-        if ((currentFull && fullAvailable) || (currentUpdate && updateAvailable))
+        if ((currentFull && fullAvailable) || (currentPatch && patchAvailable))
             return;
 
         if (fullAvailable)
@@ -880,18 +985,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (updateAvailable)
+        if (patchAvailable)
         {
             LegacyDownloadModeComboBox.SelectedIndex = 1;
             return;
         }
 
         LegacyDownloadModeComboBox.SelectedIndex = -1;
-        LegacyUpdateSourcePanel.Visibility = Visibility.Collapsed;
+        LegacyPatchSourcePanel.Visibility = Visibility.Collapsed;
         LegacyExplorerButton.Visibility = Visibility.Collapsed;
     }
 
-    private void UpdateLegacyUpdateVersions()
+    private void UpdateLegacyPatchSourceVersions()
     {
         if (!IsInitialized)
             return;
@@ -899,19 +1004,18 @@ public partial class MainWindow : Window
         LegacyFromVersionComboBox.ItemsSource = null;
         LegacyFromVersionComboBox.SelectedIndex = -1;
 
-        if (_legacyDownloadMode != LegacyDownloadMode.Update)
+        if (_legacyDownloadMode != LegacyDownloadMode.PatchDownload)
         {
-            LegacyUpdateSourcePanel.Visibility = Visibility.Collapsed;
+            LegacyPatchSourcePanel.Visibility = Visibility.Collapsed;
             return;
         }
 
         LegacyVersion? target = VersionComboBox.SelectedItem is string targetVersion
-            ? ManifestResolver.GetVersion(_legacyManifest, targetVersion)
-            : null;
+            ? ManifestResolver.GetVersion(_legacyManifest, targetVersion) : null;
 
         if (target is null)
         {
-            LegacyUpdateSourcePanel.Visibility = Visibility.Collapsed;
+            LegacyPatchSourcePanel.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -919,7 +1023,7 @@ public partial class MainWindow : Window
 
         if (selected.Count == 0)
         {
-            LegacyUpdateSourcePanel.Visibility = Visibility.Collapsed;
+            LegacyPatchSourcePanel.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -946,7 +1050,7 @@ public partial class MainWindow : Window
             .ToList() ?? [];
 
         LegacyFromVersionComboBox.ItemsSource = versions;
-        LegacyUpdateSourcePanel.Visibility = versions.Count > 0
+        LegacyPatchSourcePanel.Visibility = versions.Count > 0
             ? Visibility.Visible
             : Visibility.Collapsed;
 
@@ -958,8 +1062,7 @@ public partial class MainWindow : Window
         version.Update
             .Where(pair =>
                 pair.Value.Voice.TryGetValue(voiceCode, out LegacyPackage? package) &&
-                package is not null &&
-                ManifestResolver.HasValidUrl(package.Url))
+                package is not null && ManifestResolver.HasValidUrl(package.Url))
             .Select(pair => pair.Key);
 
     private void UpdateLegacyExplorerVisibility()
@@ -971,14 +1074,12 @@ public partial class MainWindow : Window
         }
 
         LegacyVersion? version = VersionComboBox.SelectedItem is string selectedVersion
-            ? ManifestResolver.GetVersion(_legacyManifest, selectedVersion)
-            : null;
+            ? ManifestResolver.GetVersion(_legacyManifest, selectedVersion) : null;
 
         bool visible = version is not null && GetSelectedLegacyContentOptions().Count > 0;
 
-        if (_legacyDownloadMode == LegacyDownloadMode.Update)
-            visible &= LegacyFromVersionComboBox.SelectedItem is string sourceVersion &&
-                       !string.IsNullOrWhiteSpace(sourceVersion);
+        if (_legacyDownloadMode == LegacyDownloadMode.PatchDownload)
+            visible &= LegacyFromVersionComboBox.SelectedItem is string sourceVersion && !string.IsNullOrWhiteSpace(sourceVersion);
 
         LegacyExplorerButton.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -1068,19 +1169,19 @@ public partial class MainWindow : Window
             return false;
         }
 
-        if (_legacyDownloadMode == LegacyDownloadMode.Update)
+        if (_legacyDownloadMode == LegacyDownloadMode.PatchDownload)
         {
             if (LegacyFromVersionComboBox.SelectedItem is not string sourceVersion)
             {
                 version = null!;
-                Warn("Please select the source version.", "Update");
+                Warn("Please select the source version.", "Patch Download");
                 return false;
             }
 
             if (ManifestResolver.CompareVersions(sourceVersion, selectedVersion) >= 0)
             {
                 version = null!;
-                Warn("The source version must be older than the target version.", "Update");
+                Warn("The source version must be older than the target version.", "Patch Download");
                 return false;
             }
 
@@ -1093,7 +1194,7 @@ public partial class MainWindow : Window
                         !ManifestResolver.HasValidUrl(update.Game?.Url))
                     {
                         version = null!;
-                        Warn($"No valid game update is available from {sourceVersion} to {selectedVersion}.", "Update");
+                        Warn($"No valid game update is available from {sourceVersion} to {selectedVersion}.", "Patch Download");
                         return false;
                     }
                 }
@@ -1106,7 +1207,7 @@ public partial class MainWindow : Window
                         !ManifestResolver.HasValidUrl(package.Url))
                     {
                         version = null!;
-                        Warn($"No valid {option.Name} voice update is available from {sourceVersion} to {selectedVersion}.", "Update");
+                        Warn($"No valid {option.Name} voice update is available from {sourceVersion} to {selectedVersion}.", "Patch Download");
                         return false;
                     }
                 }
@@ -1131,14 +1232,8 @@ public partial class MainWindow : Window
                 {
                     string? url;
 
-                    try
-                    {
-                        url = ManifestResolver.BuildFullVoiceUrl(selectedEntry, option.Code);
-                    }
-                    catch
-                    {
-                        url = null;
-                    }
+                    try { url = ManifestResolver.BuildFullVoiceUrl(selectedEntry, option.Code); }
+                    catch { url = null; }
 
                     if (!ManifestResolver.HasValidUrl(url))
                     {
@@ -1179,7 +1274,7 @@ public partial class MainWindow : Window
             else
             {
                 if (string.IsNullOrWhiteSpace(fromVersion))
-                    throw new InvalidOperationException("Update source version is missing.");
+                    throw new InvalidOperationException("Patch source version is missing.");
 
                 if (option.IsGame)
                 {
@@ -1189,10 +1284,8 @@ public partial class MainWindow : Window
                         urls.Add(url);
                 }
                 else if (version.Update.TryGetValue(fromVersion, out LegacyUpdate? update) &&
-                         update is not null &&
-                         update.Voice.TryGetValue(option.Code, out LegacyPackage? package) &&
-                         package is not null &&
-                         ManifestResolver.HasValidUrl(package.Url))
+                         update is not null && update.Voice.TryGetValue(option.Code, out LegacyPackage? package) &&
+                         package is not null && ManifestResolver.HasValidUrl(package.Url))
                 {
                     urls.Add(package.Url);
                 }
@@ -1237,7 +1330,7 @@ public partial class MainWindow : Window
 
         string? fromVersion = null;
 
-        if (_legacyDownloadMode == LegacyDownloadMode.Update)
+        if (_legacyDownloadMode == LegacyDownloadMode.PatchDownload)
         {
             if (LegacyFromVersionComboBox.SelectedItem is not string sourceVersion ||
                 string.IsNullOrWhiteSpace(sourceVersion))
@@ -1264,7 +1357,7 @@ public partial class MainWindow : Window
             {
                 List<string> urls;
 
-                if (_legacyDownloadMode == LegacyDownloadMode.Update)
+                if (_legacyDownloadMode == LegacyDownloadMode.PatchDownload)
                 {
                     string url = ManifestResolver.BuildGameUpdateUrl(version, fromVersion!);
                     urls = ManifestResolver.HasValidUrl(url) ? [url] : [];
@@ -1289,7 +1382,7 @@ public partial class MainWindow : Window
 
             try
             {
-                if (_legacyDownloadMode == LegacyDownloadMode.Update)
+                if (_legacyDownloadMode == LegacyDownloadMode.PatchDownload)
                 {
                     if (version.Update.TryGetValue(fromVersion!, out LegacyUpdate? update) &&
                         update is not null &&
@@ -1330,24 +1423,24 @@ public partial class MainWindow : Window
             return;
         }
 
-        string fallbackFolderName = _legacyDownloadMode == LegacyDownloadMode.Update && !string.IsNullOrWhiteSpace(fromVersion)
+        string fallbackFolderName = _legacyDownloadMode == LegacyDownloadMode.PatchDownload && !string.IsNullOrWhiteSpace(fromVersion)
             ? $"{GetLegacyFolderGameName(game)}_{fromVersion}-{versionText}"
             : $"{GetLegacyFolderGameName(game)}_{versionText}";
 
         string archiveFolderName = GetLegacyExploreFolderName(archiveUrl, fallbackFolderName);
         string archiveDirectory = Path.Combine(baseDestination, archiveFolderName);
-        string title = _legacyDownloadMode == LegacyDownloadMode.Update && !string.IsNullOrWhiteSpace(fromVersion)
-            ? $"{game.Name ?? string.Empty} {fromVersion} → {versionText} (Update)"
+        string title = _legacyDownloadMode == LegacyDownloadMode.PatchDownload && !string.IsNullOrWhiteSpace(fromVersion)
+            ? $"{game.Name ?? string.Empty} {fromVersion} → {versionText} (Patch Download)"
             : $"{game.Name ?? string.Empty} {versionText}";
 
         try
         {
             ReloadButton.IsEnabled = false;
 
-            var explorer = new LegacyExplorerWindow(
-                this, title, version, archives, archiveDirectory);
+            var explorer = new LegacyExplorerView(
+                this, DownloadsView, () => SetMainPage(MainPage.Downloads), title, archives, archiveDirectory);
 
-            explorer.ShowDialog();
+            EnterExplore(explorer);
         }
         catch (Exception ex)
         {
@@ -1413,11 +1506,11 @@ public partial class MainWindow : Window
         ["nap_global"] = "ZenlessZoneZero",
         ["nap_cn"] = "ZenlessZoneZero",
         ["bh3_global"] = "Hi3Global",
+        ["bh3_sea"] = "Hi3SEA",
         ["bh3_cn"] = "Hi3CN",
         ["bh3_jp"] = "Hi3JP",
         ["bh3_kr"] = "Hi3KR",
-        ["bh3_tw"] = "Hi3TW",
-        ["bh3_sea"] = "Hi3SEA"
+        ["bh3_tw"] = "Hi3TW"
     };
 
     private static string SanitizeFolderName(string value)
@@ -1426,7 +1519,6 @@ public partial class MainWindow : Window
             return "Game";
 
         char[] invalid = Path.GetInvalidFileNameChars();
-
         return new string(value.Select(c => invalid.Contains(c) ? '_' : c).ToArray()).Trim();
     }
 
@@ -1436,8 +1528,7 @@ public partial class MainWindow : Window
     private async Task RefreshSophonManifestAsync()
     {
         if (!IsInitialized ||
-            _mode != DownloaderMode.Sophon ||
-            _currentSophonGame is null ||
+            _mode != DownloaderMode.Sophon || _currentSophonGame is null ||
             SophonVersionComboBox.SelectedItem is not string version)
             return;
 
@@ -1463,7 +1554,7 @@ public partial class MainWindow : Window
 
             UpdateSophonContentSummary();
         }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) {}
         catch (Exception ex)
         {
             Logger.Error(ex, "Failed to load Sophon manifest.");
@@ -1620,7 +1711,7 @@ public partial class MainWindow : Window
 
         try
         {
-            BranchesGameBranch branch = await SophonGameService.GetGameBranches(game.GameId, game.Region);
+            BranchesGameBranch branch = await SophonGameService.GetGameBranches(game.GameId, game.Region, "MainWindow.RefreshSophonSelectionAsync");
             string? preDownloadTag = branch.pre_download?.tag;
             bool preDownloadAvailable = !string.IsNullOrWhiteSpace(preDownloadTag);
 
@@ -1777,8 +1868,8 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var explorer = new SophonExplorerWindow(
-                this,
+            var explorer = new SophonExplorerView(
+                this, DownloadsView, () => SetMainPage(MainPage.Downloads), game, version, channel, patchFromVersion,
                 _sophonDownloadMode == SophonDownloadMode.Patch
                     ? $"{game.DisplayName ?? string.Empty} {patchFromVersion} → {version} (Patch)"
                     : $"{game.DisplayName ?? string.Empty} {version}",
@@ -1793,7 +1884,7 @@ public partial class MainWindow : Window
                         game, fromManifest, targetManifest, selectedContent);
                 });
 
-            explorer.ShowDialog();
+            EnterExplore(explorer);
         }
         catch (Exception ex)
         {
@@ -1924,10 +2015,6 @@ public partial class MainWindow : Window
 
     private void MinimizeButton_Click(object sender, RoutedEventArgs e) => WindowState = WindowState.Minimized;
     private void CloseButton_Click(object sender, RoutedEventArgs e) => Close();
-
-    private static void Warn(string message, string title) =>
-        MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
-
-    private static void Error(string message, string title) =>
-        MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+    private static void Warn(string message, string title) => MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Warning);
+    private static void Error(string message, string title) => MessageBox.Show(message, title, MessageBoxButton.OK, MessageBoxImage.Error);
 }

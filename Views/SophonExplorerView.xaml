@@ -1,48 +1,15 @@
-<Window x:Class="SophonDownloader.SophonExplorerWindow"
+<UserControl x:Class="SophonDownloader.SophonExplorerView"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:SophonDownloader.Models"
-        Title="Sophon Explorer"
-        Icon="../Assets/app.ico"
-        Width="1180"
-        Height="760"
-        MinWidth="900"
-        MinHeight="560"
-        WindowStartupLocation="CenterOwner"
-        WindowStyle="None"
-        AllowsTransparency="True"
-        Background="Transparent"
-        ResizeMode="CanResize">
+        Background="Transparent">
 
-    <Window.Resources>
-        <SolidColorBrush x:Key="PrimaryTextBrush" Color="#202124"/>
-        <SolidColorBrush x:Key="SecondaryTextBrush" Color="#6B7280"/>
-        <SolidColorBrush x:Key="MutedTextBrush" Color="#6B7280"/>
-        <SolidColorBrush x:Key="LabelBrush" Color="#6B7280"/>
-        <SolidColorBrush x:Key="AccentBrush" Color="#475569"/>
-        <SolidColorBrush x:Key="AccentHoverBrush" Color="#334155"/>
-        <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="PanelStrongBrush" Color="#FAFAFA"/>
-        <SolidColorBrush x:Key="BorderBrush" Color="#DFE3E8"/>
-        <SolidColorBrush x:Key="ControlBorderBrush" Color="#DFE3E8"/>
-        <SolidColorBrush x:Key="ControlHoverBrush" Color="#F8FAFC"/>
-        <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#F4F6F8"/>
-        <SolidColorBrush x:Key="TitleBarBackgroundBrush" Color="#F8FAFC"/>
-        <SolidColorBrush x:Key="PanelBackgroundBrush" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="PanelStrongBackgroundBrush" Color="#FAFAFA"/>
-        <SolidColorBrush x:Key="PrimaryButtonBackgroundBrush" Color="#475569"/>
-        <SolidColorBrush x:Key="PrimaryButtonHoverBrush" Color="#334155"/>
-        <SolidColorBrush x:Key="SecondaryButtonBackgroundBrush" Color="#475569"/>
-        <SolidColorBrush x:Key="SecondaryButtonHoverBrush" Color="#F8FAFC"/>
-        <SolidColorBrush x:Key="CancelButtonBackgroundBrush" Color="#DC2626"/>
-        <SolidColorBrush x:Key="CancelButtonHoverBrush" Color="#DC2626"/>
-        <SolidColorBrush x:Key="LogoBackgroundBrush" Color="#475569"/>
-
-        <Style TargetType="Window">
+    <UserControl.Resources>
+        <Style TargetType="UserControl">
             <Setter Property="FontFamily" Value="Segoe UI Variable, Segoe UI"/>
         </Style>
 
-        <Style x:Key="WindowButtonStyle" TargetType="Button">
+        <Style x:Key="ExplorerCloseButtonStyle" TargetType="Button">
             <Setter Property="Width" Value="42"/>
             <Setter Property="Height" Value="40"/>
             <Setter Property="Background" Value="Transparent"/>
@@ -155,44 +122,6 @@
             </Setter>
         </Style>
 
-        <Style x:Key="ExplorerCancelButtonStyle"
-               TargetType="Button"
-               BasedOn="{StaticResource ExplorerSecondaryButtonStyle}">
-            <Setter Property="Background" Value="{DynamicResource CancelButtonBackgroundBrush}"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource DangerBrush}"/>
-            <Setter Property="Foreground" Value="{DynamicResource InverseTextBrush}"/>
-            <Setter Property="MinWidth" Value="86"/>
-            <Setter Property="Width" Value="86"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder"
-                                Background="{DynamicResource CancelButtonBackgroundBrush}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="9"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"
-                                              RecognizesAccessKey="True"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource CancelButtonHoverBrush}"/>
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{DynamicResource PrimaryHoverBrush}"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource DangerBrush}"/>
-                                <Setter Property="Foreground" Value="{DynamicResource InverseTextBrush}"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="ButtonBorder" Property="Opacity" Value="0.4"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
 
         <Style TargetType="TreeView">
             <Setter Property="Background" Value="Transparent"/>
@@ -233,9 +162,9 @@
         <Style TargetType="GridSplitter">
             <Setter Property="Background" Value="{DynamicResource ButtonBackgroundBrush}"/>
         </Style>
-    </Window.Resources>
+    </UserControl.Resources>
 
-    <Border Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="14">
+    <Border Background="{DynamicResource WindowBackgroundBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="14" PreviewMouseLeftButtonDown="ExplorerSurface_PreviewMouseLeftButtonDown">
         <Grid>
             <Grid.RowDefinitions>
                 <RowDefinition Height="48"/>
@@ -245,7 +174,7 @@
             <Border Grid.Row="0"
                     Background="{DynamicResource TitleBarBackgroundBrush}"
                     CornerRadius="14,14,0,0"
-                    MouseLeftButtonDown="TitleBar_MouseLeftButtonDown">
+                    >
                 <Grid>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="18,0">
                         <Border Width="26" Height="26"
@@ -274,8 +203,7 @@
                     </StackPanel>
 
                     <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
-                        <Button Content="—" Style="{StaticResource WindowButtonStyle}" Click="MinimizeButton_Click"/>
-                        <Button Content="×" Style="{StaticResource WindowButtonStyle}" FontSize="18" Click="CloseButton_Click"/>
+                        <Button Content="×" Style="{StaticResource ExplorerCloseButtonStyle}" FontSize="18" Click="CloseButton_Click"/>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -322,7 +250,6 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
                         <Button x:Name="SelectAllButton"
@@ -341,7 +268,7 @@
 
                         <Button x:Name="DownloadSelectedButton"
                                 Grid.Column="2"
-                                Content="DOWNLOAD SELECTED"
+                                Content="DOWNLOAD"
                                 Style="{StaticResource ExplorerPrimaryButtonStyle}"
                                 Click="DownloadSelectedButton_Click"
                                 Margin="0,0,14,0"/>
@@ -354,14 +281,6 @@
                                    FontSize="11"
                                    Text="0 files selected"/>
 
-                        <CheckBox x:Name="ExplorerDeleteChunksCheckBox"
-                                  Grid.Column="4"
-                                  Content="Delete chunks after extraction"
-                                  IsChecked="True"
-                                  VerticalAlignment="Center"
-                                  Foreground="{DynamicResource SecondaryTextBrush}"
-                                  FontSize="11"
-                                  Margin="14,0,6,0"/>
                     </Grid>
                 </Border>
 
@@ -579,63 +498,16 @@
                             <ColumnDefinition Width="94"/>
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
-                            <TextBlock x:Name="DownloadStatusText"
-                                       Text="Ready."
-                                       Foreground="{DynamicResource SecondaryTextBrush}"
-                                       FontSize="11"
-                                       TextTrimming="CharacterEllipsis"/>
-                            <ProgressBar x:Name="DownloadProgressBar"
-                                         Minimum="0"
-                                         Maximum="100"
-                                         Value="0"
-                                         Margin="0,7,0,0"
-                                         Visibility="Collapsed"
-                                         HorizontalAlignment="Stretch"/>
-                        </StackPanel>
-
-                        <TextBlock x:Name="DownloadSpeedText"
-                                   Grid.Column="1"
-                                   Text="--"
-                                   Foreground="{DynamicResource PrimaryTextBrush}"
+                        <TextBlock Grid.Column="0"
+                                   x:Name="DownloadStatusText"
+                                   Text="Ready."
+                                   Foreground="{DynamicResource SecondaryTextBrush}"
                                    FontSize="11"
-                                   FontWeight="SemiBold"
                                    VerticalAlignment="Center"
-                                   HorizontalAlignment="Right"
-                                   Margin="10,0,12,0"
-                                   Visibility="Collapsed"/>
-
-                        <TextBlock x:Name="DownloadProgressText"
-                                   Grid.Column="2"
-                                   Text=""
-                                   Foreground="{DynamicResource PrimaryTextBrush}"
-                                   FontSize="11"
-                                   FontWeight="SemiBold"
-                                   VerticalAlignment="Center"
-                                   HorizontalAlignment="Right"
-                                   Margin="0,0,12,0"
-                                   Visibility="Collapsed"/>
-
-                        <Button x:Name="PauseButton"
-                                Grid.Column="3"
-                                Content="PAUSE"
-                                Style="{StaticResource ExplorerSecondaryButtonStyle}"
-                                Width="86"
-                                HorizontalAlignment="Center"
-                                Click="PauseButton_Click"
-                                Visibility="Collapsed"/>
-
-                        <Button x:Name="CancelButton"
-                                Grid.Column="4"
-                                Content="CANCEL"
-                                Style="{StaticResource ExplorerCancelButtonStyle}"
-                                Width="86"
-                                HorizontalAlignment="Center"
-                                Click="CancelButton_Click"
-                                Visibility="Collapsed"/>
+                                   TextTrimming="CharacterEllipsis"/>
                     </Grid>
                 </Border>
             </Grid>
         </Grid>
     </Border>
-</Window>
+</UserControl>

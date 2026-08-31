@@ -38,6 +38,9 @@ internal sealed class DownloadHistoryStore
                     delete_chunks_after_extraction INTEGER NOT NULL,
                     selected_category_ids TEXT NOT NULL,
                     selected_content_names TEXT NOT NULL DEFAULT '',
+                    legacy_explorer_archives_json TEXT NULL,
+                    legacy_explorer_selected_paths TEXT NOT NULL DEFAULT '',
+                    sophon_selected_file_paths TEXT NOT NULL DEFAULT '',
                     state INTEGER NOT NULL,
                     status_message TEXT NULL
                 );
@@ -46,6 +49,9 @@ internal sealed class DownloadHistoryStore
             command.ExecuteNonQuery();
             EnsureColumn(connection, "selected_content_names", "TEXT NOT NULL DEFAULT ''");
             EnsureColumn(connection, "patch_from_version", "TEXT NULL");
+            EnsureColumn(connection, "legacy_explorer_archives_json", "TEXT NULL");
+            EnsureColumn(connection, "legacy_explorer_selected_paths", "TEXT NOT NULL DEFAULT ''");
+            EnsureColumn(connection, "sophon_selected_file_paths", "TEXT NOT NULL DEFAULT ''");
         }
         catch (Exception ex)
         {
@@ -64,7 +70,9 @@ internal sealed class DownloadHistoryStore
             SELECT type, title, destination_directory, legacy_urls,
                    game_id, game_display_name, game_region, version, channel,
                    delete_chunks_after_extraction, selected_category_ids,
-                   selected_content_names, patch_from_version, state, status_message
+                   selected_content_names, patch_from_version,
+                   legacy_explorer_archives_json, legacy_explorer_selected_paths,
+                   sophon_selected_file_paths, state, status_message
             FROM download_history
             ORDER BY id ASC;
             """;
@@ -88,8 +96,11 @@ internal sealed class DownloadHistoryStore
                 SelectedCategoryIds = ReadStringList(reader.GetString(10)),
                 SelectedContentNames = ReadStringList(reader.GetString(11)),
                 PatchFromVersion = ReadNullableString(reader, 12),
-                State = reader.GetInt32(13),
-                StatusMessage = ReadNullableString(reader, 14)
+                LegacyExplorerArchivesJson = ReadNullableString(reader, 13),
+                LegacyExplorerSelectedPaths = ReadStringList(reader.GetString(14)),
+                SophonSelectedFilePaths = ReadStringList(reader.GetString(15)),
+                State = reader.GetInt32(16),
+                StatusMessage = ReadNullableString(reader, 17)
             });
         }
 
@@ -133,14 +144,18 @@ internal sealed class DownloadHistoryStore
                 type, title, destination_directory, legacy_urls,
                 game_id, game_display_name, game_region, version, channel,
                 delete_chunks_after_extraction, selected_category_ids,
-                selected_content_names, patch_from_version, state, status_message
+                selected_content_names, patch_from_version,
+                legacy_explorer_archives_json, legacy_explorer_selected_paths,
+                sophon_selected_file_paths, state, status_message
             )
             VALUES
             (
                 $type, $title, $destination_directory, $legacy_urls,
                 $game_id, $game_display_name, $game_region, $version, $channel,
                 $delete_chunks_after_extraction, $selected_category_ids,
-                $selected_content_names, $patch_from_version, $state, $status_message
+                $selected_content_names, $patch_from_version,
+                $legacy_explorer_archives_json, $legacy_explorer_selected_paths,
+                $sophon_selected_file_paths, $state, $status_message
             );
             """;
 
@@ -157,6 +172,9 @@ internal sealed class DownloadHistoryStore
         AddParameter(command, "$selected_category_ids", WriteStringList(entry.SelectedCategoryIds));
         AddParameter(command, "$selected_content_names", WriteStringList(entry.SelectedContentNames));
         AddParameter(command, "$patch_from_version", entry.PatchFromVersion);
+        AddParameter(command, "$legacy_explorer_archives_json", entry.LegacyExplorerArchivesJson);
+        AddParameter(command, "$legacy_explorer_selected_paths", WriteStringList(entry.LegacyExplorerSelectedPaths));
+        AddParameter(command, "$sophon_selected_file_paths", WriteStringList(entry.SophonSelectedFilePaths));
         AddParameter(command, "$state", entry.State);
         AddParameter(command, "$status_message", entry.StatusMessage);
 
@@ -207,6 +225,9 @@ internal sealed class DownloadHistoryEntry
     public List<string> SelectedCategoryIds { get; init; } = [];
     public List<string> SelectedContentNames { get; init; } = [];
     public string? PatchFromVersion { get; init; }
+    public string? LegacyExplorerArchivesJson { get; init; }
+    public List<string> LegacyExplorerSelectedPaths { get; init; } = [];
+    public List<string> SophonSelectedFilePaths { get; init; } = [];
     public int State { get; init; }
     public string? StatusMessage { get; init; }
 }

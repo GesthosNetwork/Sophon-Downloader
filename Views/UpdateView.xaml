@@ -61,17 +61,18 @@
                                  Visibility="Collapsed"/>
                 </StackPanel>
 
-                <TextBox x:Name="ReleaseNotesTextBox"
-                         Grid.Row="2"
-                         Margin="0,18,0,18"
-                         IsReadOnly="True"
-                         BorderThickness="1"
-                         BorderBrush="{DynamicResource BorderBrush}"
-                         Background="{DynamicResource InputBackgroundBrush}"
-                         Foreground="{DynamicResource SecondaryTextBrush}"
-                         FontSize="11"
-                         TextWrapping="Wrap"
-                         VerticalScrollBarVisibility="Auto"/>
+                <RichTextBox x:Name="ReleaseNotesRichTextBox"
+                             Grid.Row="2"
+                             Margin="0,18,0,18"
+                             IsReadOnly="True"
+                             IsDocumentEnabled="True"
+                             BorderThickness="1"
+                             BorderBrush="{DynamicResource BorderBrush}"
+                             Background="{DynamicResource InputBackgroundBrush}"
+                             Foreground="{DynamicResource SecondaryTextBrush}"
+                             FontSize="11"
+                             VerticalScrollBarVisibility="Auto"
+                             HorizontalScrollBarVisibility="Disabled"/>
 
                 <Button x:Name="ActionButton"
                         Grid.Row="3"

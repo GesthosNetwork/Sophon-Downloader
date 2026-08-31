@@ -15,23 +15,19 @@
         ResizeMode="CanResize">
 
     <Window.Resources>
-        <SolidColorBrush x:Key="WhiteBrush" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="PrimaryTextBrush" Color="#202124"/>
         <SolidColorBrush x:Key="SecondaryTextBrush" Color="#6B7280"/>
         <SolidColorBrush x:Key="MutedTextBrush" Color="#6B7280"/>
         <SolidColorBrush x:Key="LabelBrush" Color="#6B7280"/>
         <SolidColorBrush x:Key="AccentBrush" Color="#475569"/>
-        <SolidColorBrush x:Key="AccentHoverBrush" Color="#334155"/>
         <SolidColorBrush x:Key="PanelBrush" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="PanelStrongBrush" Color="#FAFAFA"/>
         <SolidColorBrush x:Key="InputBackgroundBrush" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="InputHoverBrush" Color="#F8FAFC"/>
         <SolidColorBrush x:Key="DropdownBackgroundBrush" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="DropdownHoverBrush" Color="#F8FAFC"/>
         <SolidColorBrush x:Key="DropdownSelectedBrush" Color="#FAFAFA"/>
         <SolidColorBrush x:Key="BorderBrush" Color="#DFE3E8"/>
         <SolidColorBrush x:Key="ControlBorderBrush" Color="#DFE3E8"/>
-        <SolidColorBrush x:Key="ControlHoverBrush" Color="#F8FAFC"/>
         <SolidColorBrush x:Key="ControlFocusBrush" Color="#475569"/>
         <SolidColorBrush x:Key="OnlineBrush" Color="#16A34A"/>
         <SolidColorBrush x:Key="OfflineBrush" Color="#DC2626"/>
@@ -40,7 +36,6 @@
         <SolidColorBrush x:Key="PanelBackgroundBrush" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="PanelStrongBackgroundBrush" Color="#FAFAFA"/>
         <SolidColorBrush x:Key="InputBackgroundGradientBrush" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="DropdownBackgroundGradientBrush" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="ModeButtonBackgroundBrush" Color="#475569"/>
         <SolidColorBrush x:Key="PrimaryButtonBackgroundBrush" Color="#475569"/>
         <SolidColorBrush x:Key="PrimaryButtonHoverBrush" Color="#334155"/>
@@ -50,7 +45,6 @@
         <SolidColorBrush x:Key="SecondaryButtonPressedBrush" Color="#334155"/>
         <SolidColorBrush x:Key="CancelButtonBackgroundBrush" Color="#DC2626"/>
         <SolidColorBrush x:Key="CancelButtonHoverBrush" Color="#DC2626"/>
-        <SolidColorBrush x:Key="CancelButtonPressedBrush" Color="#DC2626"/>
         <SolidColorBrush x:Key="DangerSoftBackgroundBrush" Color="#FFF1F2"/>
         <SolidColorBrush x:Key="DangerSoftHoverBrush" Color="#FFE4E6"/>
         <SolidColorBrush x:Key="ReloadButtonBackgroundBrush" Color="#FFFFFF"/>
@@ -58,14 +52,7 @@
         <SolidColorBrush x:Key="GameTextPanelBrush" Color="#D9FFFFFF"/>
         <SolidColorBrush x:Key="BackgroundScrimBrush" Color="#00000000"/>
         <SolidColorBrush x:Key="HeaderForegroundBrush" Color="#FFFFFF"/>
-        <SolidColorBrush x:Key="HeaderMutedBrush" Color="#FFFFFF"/>
         <SolidColorBrush x:Key="HeaderHoverBrush" Color="#334155"/>
-
-        <DropShadowEffect x:Key="WindowShadowEffect"
-                          BlurRadius="30"
-                          ShadowDepth="0"
-                          Opacity=".55"
-                          Color="#000"/>
 
         <Style TargetType="Window">
             <Setter Property="FontFamily" Value="{DynamicResource AppFontFamily}"/>
@@ -229,45 +216,6 @@
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="DownloadButtonBorder" Property="Opacity" Value=".4"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
-            <Setter Property="Height" Value="44"/>
-            <Setter Property="Background" Value="{DynamicResource PrimaryButtonBackgroundBrush}"/>
-            <Setter Property="Foreground" Value="{DynamicResource InverseTextBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Padding" Value="26,0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="ButtonBorder"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="9">
-                            <ContentPresenter HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"
-                                              RecognizesAccessKey="True"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource PrimaryButtonHoverBrush}"/>
-                                <Setter TargetName="ButtonBorder" Property="BorderBrush" Value="{DynamicResource PrimaryHoverBrush}"/>
-                            </Trigger>
-                            <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="ButtonBorder" Property="Background" Value="{DynamicResource PrimaryButtonPressedBrush}"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="ButtonBorder" Property="Opacity" Value=".4"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -519,6 +467,7 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="48"/>
                     <RowDefinition Height="*"/>
+                    <RowDefinition x:Name="DistributionNoticeRow" Height="0"/>
                 </Grid.RowDefinitions>
 
                 <Border x:Name="FullWindowBackgroundBorder"
@@ -835,10 +784,10 @@
                                                       SelectionChanged="LegacyDownloadModeComboBox_SelectionChanged">
                                                 <ComboBoxItem Content="Full Download"
                                                               IsSelected="True"/>
-                                                <ComboBoxItem Content="Update"/>
+                                                <ComboBoxItem Content="Patch Download"/>
                                             </ComboBox>
 
-                                            <StackPanel x:Name="LegacyUpdateSourcePanel"
+                                            <StackPanel x:Name="LegacyPatchSourcePanel"
                                                         Visibility="Collapsed">
 
                                                 <TextBlock Text="FROM VERSION"
@@ -1253,9 +1202,40 @@
 
                 </Grid>
 
+                <Border x:Name="DistributionNoticeMarqueeBorder"
+                        Grid.Row="2"
+                        Margin="1,0,1,1"
+                        Background="#FFF1F2"
+                        BorderBrush="#FECACA"
+                        BorderThickness="0,1,0,0"
+                        ClipToBounds="True"
+                        Visibility="Collapsed">
+                    <Canvas x:Name="DistributionNoticeMarqueeCanvas"
+                            ClipToBounds="True">
+                        <TextBlock x:Name="DistributionNoticeMarqueeText"
+                                   Text=""
+                                   Foreground="#DC2626"
+                                   FontSize="11"
+                                   FontWeight="SemiBold"
+                                   VerticalAlignment="Center"
+                                   RenderTransformOrigin="0.5,0.5">
+                            <TextBlock.RenderTransform>
+                                <TranslateTransform x:Name="DistributionNoticeMarqueeTransform"/>
+                            </TextBlock.RenderTransform>
+                        </TextBlock>
+                    </Canvas>
+                </Border>
 
             </Grid>
         </Border>
+
+        <Border x:Name="ExploreHost"
+                Panel.ZIndex="1100"
+                Margin="1"
+                Background="{DynamicResource WindowBackgroundBrush}"
+                CornerRadius="13"
+                ClipToBounds="True"
+                Visibility="Collapsed"/>
 
         <Border x:Name="StartupOverlay"
                 Panel.ZIndex="1000"

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using SophonDownloader.Models;
 using SophonDownloader.Services;
 using SophonDownloader.Utilities;
@@ -10,54 +11,106 @@ public partial class DownloadsView : UserControl
     private readonly List<QueueItem> _items = [];
     private bool _historyLoaded;
     private bool _shuttingDown;
+    private readonly object _schedulerLock = new();
+    private int _activeOperations;
+    private bool _schedulerPumpRunning;
+    private Task? _historyLoadTask;
+    private readonly System.Windows.Threading.DispatcherTimer _progressWatchdogTimer;
 
-    private readonly DownloadHistoryStore _historyStore =
-        new(Path.Combine(AppContext.BaseDirectory, "sophon.db"));
+    private static readonly TimeSpan ProgressWaitThreshold = TimeSpan.FromSeconds(5);
+    private const string ProgressWaitMessage = "Finalizing the segment and flushing the disk cache. Please wait a moment. Do not interrupt or close the application.";
+    private readonly DownloadHistoryStore _historyStore = new(Path.Combine(AppContext.BaseDirectory, "sophon.db"));
 
     public DownloadsView()
     {
         InitializeComponent();
         _historyStore.Initialize();
         UpdateQueueSummary();
+
+        _progressWatchdogTimer = new System.Windows.Threading.DispatcherTimer(
+            System.Windows.Threading.DispatcherPriority.Background, Dispatcher)
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+        _progressWatchdogTimer.Tick += (_, _) => RefreshProgressWaitNotices();
+        _progressWatchdogTimer.Start();
+
         Loaded += DownloadsView_Loaded;
+        Unloaded += DownloadsView_Unloaded;
+    }
+
+    private void DownloadsView_Unloaded(object sender, RoutedEventArgs e)
+    {
+        _progressWatchdogTimer.Stop();
     }
 
     private async void DownloadsView_Loaded(object sender, RoutedEventArgs e)
     {
+        if (!_progressWatchdogTimer.IsEnabled && !_shuttingDown)
+            _progressWatchdogTimer.Start();
+
         if (_historyLoaded || _shuttingDown) return;
         _historyLoaded = true;
-        await LoadHistoryAsync();
+        _historyLoadTask = LoadHistoryAsync();
+        await _historyLoadTask;
     }
 
-    public void ShutdownDownloads()
+    public void HardStopDownloads()
     {
-        if (_shuttingDown) return;
         _shuttingDown = true;
 
-        foreach (QueueItem item in _items.ToList())
+        QueueItem[] snapshot;
+        lock (_schedulerLock)
         {
-            try { item.CancelRequested = true; } catch { }
-            try { item.CancellationSource?.Cancel(); } catch { }
-            try { item.SophonOperationCancellationSource?.Cancel(); } catch { }
-            try { item.SophonService?.Cancel(); } catch { }
+            snapshot = _items.ToArray();
+            _schedulerPumpRunning = false;
         }
 
-        foreach (QueueItem item in _items.ToList())
+        foreach (QueueItem item in snapshot)
         {
-            try { item.SophonService?.Dispose(); } catch { }
-            item.SophonService = null;
-
-            try { item.CancellationSource?.Dispose(); } catch { }
-            item.CancellationSource = null;
-
-            try { item.SophonOperationCancellationSource?.Dispose(); } catch { }
-            item.SophonOperationCancellationSource = null;
+            item.CancelRequested = true;
+            try { item.CancellationSource?.Cancel(); } catch {}
+            try { item.SophonOperationCancellationSource?.Cancel(); } catch {}
+            try { item.LegacyService?.Cancel(); } catch {}
+            try { item.LegacyExplorerService?.Cancel(); } catch {}
+            try { item.SophonService?.Cancel(); } catch {}
         }
 
-        KillRemainingAria2Processes();
+        try { KillRemainingAria2Processes(); } catch {}
     }
 
     private static void KillRemainingAria2Processes() => Aria2c.KillAllProcesses();
+
+    private void RefreshProgressWaitNotices()
+    {
+        if (_shuttingDown) return;
+
+        long now = Environment.TickCount64;
+        foreach (QueueItem item in _items)
+        {
+            if (item.CancelRequested || item.StatusDetailText is null)
+                continue;
+
+            if (item.State is not (QueueItemState.Preparing or QueueItemState.Downloading))
+                continue;
+
+            bool paused = item.Type == QueueItemType.Legacy
+                ? item.LegacyExplorerService?.IsPaused == true || item.LegacyService?.IsPaused == true
+                : item.SophonService?.IsPaused == true;
+
+            if (paused || item.LastProgressTick <= 0)
+                continue;
+
+            if (now - item.LastProgressTick >= (long)ProgressWaitThreshold.TotalMilliseconds)
+            {
+                if (!string.Equals(item.StatusDetailText.Text, ProgressWaitMessage, StringComparison.Ordinal))
+                {
+                    item.StatusText.Text = "PLEASE WAIT";
+                    item.StatusDetailText.Text = ProgressWaitMessage;
+                }
+            }
+        }
+    }
 
     public void AddLegacyDownload(IReadOnlyList<string> urls, string destinationDirectory, string title, IReadOnlyList<LegacyContentOption> selectedContent)
     {
@@ -82,13 +135,111 @@ public partial class DownloadsView : UserControl
             .ToList();
 
         AddItem(item);
-        _ = RunLegacyDownloadAsync(item);
+        SchedulePendingDownloads();
+    }
+
+    public void AddLegacyExplorerDownload(
+        IReadOnlyList<LegacyExplorerArchive> archives,
+        IReadOnlyList<LegacyExplorerNode> selectedNodes,
+        string destinationDirectory, string title)
+    {
+        ArgumentNullException.ThrowIfNull(archives);
+        ArgumentNullException.ThrowIfNull(selectedNodes);
+        if (_shuttingDown) return;
+
+        if (archives.Count == 0)
+            throw new ArgumentException("At least one archive is required.", nameof(archives));
+        if (selectedNodes.Count == 0)
+            throw new ArgumentException("At least one file must be selected.", nameof(selectedNodes));
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+            throw new ArgumentException("Destination directory cannot be empty.", nameof(destinationDirectory));
+
+        var item = new QueueItem(
+            QueueItemType.Legacy, title, destinationDirectory, [], null, null, null, false)
+        {
+            LegacyExplorerArchives = archives.ToList(),
+            LegacyExplorerSelectedNodes = selectedNodes
+                .Where(node => node is not null && !node.IsFolder && !string.IsNullOrWhiteSpace(node.FullPath))
+                .Select(node => CloneLegacyExplorerNode(node))
+                .GroupBy(node => node.FullPath, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList(),
+            LegacyExplorerSelectedPaths = selectedNodes
+                .Where(node => node is not null && !node.IsFolder && !string.IsNullOrWhiteSpace(node.FullPath))
+                .Select(node => node.FullPath)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList()
+        };
+
+        item.SelectedContentNames = archives
+            .Select(archive => archive.Name)
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        AddItem(item);
+        SchedulePendingDownloads();
+    }
+
+    public void AddSophonExplorerDownload(
+        GameInfo game, string version, string channel,
+        IReadOnlyList<SophonContentOption> selectedContent,
+        IReadOnlyList<string> selectedFilePaths,
+        string destinationDirectory,
+        ManifestConfig? manifest = null,
+        string? patchFromVersion = null)
+    {
+        ArgumentNullException.ThrowIfNull(game);
+        ArgumentNullException.ThrowIfNull(selectedContent);
+        ArgumentNullException.ThrowIfNull(selectedFilePaths);
+        if (_shuttingDown) return;
+
+        if (string.IsNullOrWhiteSpace(version))
+            throw new ArgumentException("Version cannot be empty.", nameof(version));
+        if (string.IsNullOrWhiteSpace(destinationDirectory))
+            throw new ArgumentException("Destination directory cannot be empty.", nameof(destinationDirectory));
+
+        List<string> paths = selectedFilePaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(NormalizeExplorerPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (paths.Count == 0)
+            throw new ArgumentException("At least one file must be selected.", nameof(selectedFilePaths));
+
+        List<SophonContentOption> copiedContent = selectedContent
+            .Select(option => new SophonContentOption(option.Category) { IsSelected = true })
+            .ToList();
+
+        if (copiedContent.Count == 0)
+            throw new ArgumentException("At least one content category is required.", nameof(selectedContent));
+
+        bool isPatch = !string.IsNullOrWhiteSpace(patchFromVersion);
+        string title = isPatch
+            ? $"{game.DisplayName} • {patchFromVersion} → {version}"
+            : $"{game.DisplayName} {version}";
+
+        var item = new QueueItem(
+            QueueItemType.Sophon, title, destinationDirectory, [], game, version, channel, true)
+        {
+            SelectedContent = copiedContent,
+            SelectedCategoryIds = copiedContent
+                .Select(content => content.Category.category_id)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList(),
+            SophonSelectedFilePaths = paths,
+            Manifest = manifest,
+            PatchFromVersion = patchFromVersion
+        };
+
+        AddItem(item);
+        SchedulePendingDownloads();
     }
 
     public void AddSophonDownload(
-        GameInfo game,
-        string version,
-        string channel,
+        GameInfo game, string version, string channel,
         IReadOnlyList<SophonContentOption> selectedContent,
         string destinationDirectory,
         bool deleteChunksAfterExtraction,
@@ -117,14 +268,7 @@ public partial class DownloadsView : UserControl
             : $"{game.DisplayName} {version}";
 
         var item = new QueueItem(
-            QueueItemType.Sophon,
-            title,
-            destinationDirectory,
-            [],
-            game,
-            version,
-            channel,
-            deleteChunksAfterExtraction);
+            QueueItemType.Sophon, title, destinationDirectory, [], game, version, channel, deleteChunksAfterExtraction);
 
         item.SelectedContent = copiedContent;
         item.SelectedCategoryIds = copiedContent
@@ -137,7 +281,129 @@ public partial class DownloadsView : UserControl
         item.PatchFromVersion = patchFromVersion;
 
         AddItem(item);
-        _ = RunSophonDownloadAsync(item);
+        SchedulePendingDownloads();
+    }
+
+    public void RefreshScheduler() => SchedulePendingDownloads();
+
+    private void SchedulePendingDownloads()
+    {
+        if (_shuttingDown || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+            return;
+
+        lock (_schedulerLock)
+        {
+            if (_schedulerPumpRunning) return;
+            _schedulerPumpRunning = true;
+        }
+
+        PostUi(() => _ = PumpSchedulerAsync());
+    }
+
+    private async Task PumpSchedulerAsync()
+    {
+        try
+        {
+            while (!_shuttingDown)
+            {
+                int limit = GetQueueConcurrencyLimit();
+                QueueItem? next = null;
+
+                lock (_schedulerLock)
+                {
+                    if (_activeOperations >= limit)
+                        break;
+
+                    next = _items.FirstOrDefault(item =>
+                        item.State == QueueItemState.Queued &&
+                        !item.CancelRequested &&
+                        !item.SchedulerRunning);
+
+                    if (next is null)
+                        break;
+
+                    next.SchedulerRunning = true;
+                    _activeOperations++;
+                }
+
+                Task runningTask = RunScheduledDownloadAsync(next);
+                next.ScheduledTask = runningTask;
+
+                await Task.Yield();
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.Error(ex, "Unexpected error while pumping the download queue scheduler.");
+        }
+        finally
+        {
+            lock (_schedulerLock)
+                _schedulerPumpRunning = false;
+
+            if (!_shuttingDown)
+                PostUi(UpdateQueueSummary);
+        }
+    }
+
+    private void PostUi(Action action)
+    {
+        if (_shuttingDown || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+            return;
+
+        try
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (_shuttingDown || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+                    return;
+
+                try
+                {
+                    action();
+                }
+                catch (Exception ex)
+                {
+                    Logger.Warn(ex, "A queued UI update could not be applied.");
+                }
+            }), System.Windows.Threading.DispatcherPriority.Normal);
+        }
+        catch (InvalidOperationException) {}
+    }
+
+    private static int GetQueueConcurrencyLimit()
+    {
+        AppSettings settings = AppSettingsStore.Load();
+        return string.Equals(settings.DownloadMode, "Sequential", StringComparison.OrdinalIgnoreCase)
+            ? 1 : Math.Clamp(settings.MaxConcurrentDownloads, 1, 8);
+    }
+
+    private async Task RunScheduledDownloadAsync(QueueItem item)
+    {
+        try
+        {
+            item.SetState(QueueItemState.Preparing, "Starting queued download...");
+            item.LastProgressTick = Environment.TickCount64;
+            SetActiveControls(item);
+            PersistHistory();
+
+            if (item.Type == QueueItemType.Legacy)
+                await RunLegacyDownloadAsync(item);
+            else
+                await RunSophonDownloadAsync(item);
+        }
+        finally
+        {
+            lock (_schedulerLock)
+            {
+                item.SchedulerRunning = false;
+                item.ScheduledTask = null;
+                _activeOperations = Math.Max(0, _activeOperations - 1);
+            }
+
+            if (!_shuttingDown)
+                SchedulePendingDownloads();
+        }
     }
 
     private void AddItem(QueueItem item, bool persist = true)
@@ -185,7 +451,7 @@ public partial class DownloadsView : UserControl
         {
             Text = item.Type == QueueItemType.Sophon
                 ? (item.IsPatch ? "SOPHON PATCH DOWNLOAD" : "SOPHON FULL DOWNLOAD")
-                : "LEGACY",
+                : (item.IsLegacyExplorer ? "LEGACY EXPLORE" : "LEGACY"),
             FontSize = 9,
             FontWeight = FontWeights.SemiBold
         };
@@ -229,7 +495,7 @@ public partial class DownloadsView : UserControl
 
         var stateText = new TextBlock
         {
-            Text = "Preparing...",
+            Text = "QUEUED",
             FontSize = 11,
             FontWeight = FontWeights.SemiBold,
             VerticalAlignment = VerticalAlignment.Center,
@@ -258,9 +524,10 @@ public partial class DownloadsView : UserControl
 
         var statusText = new TextBlock
         {
-            Text = "Preparing download...",
+            Text = "Waiting for an available queue slot...",
             FontSize = 10,
-            TextTrimming = TextTrimming.CharacterEllipsis,
+            TextWrapping = TextWrapping.Wrap,
+            MaxHeight = 42,
             Margin = new Thickness(0, 0, 120, 0),
             Tag = "StatusDetail"
         };
@@ -442,13 +709,13 @@ public partial class DownloadsView : UserControl
         item.Stats = statsGrid;
 
         SetItemControls(item);
+        SetQueuedControls(item);
         return card;
     }
 
     private static void AddStat(Grid grid, int column, string label, string value, string tag)
     {
         var stack = new StackPanel { Tag = tag };
-
         var labelText = new TextBlock
         {
             Text = label,
@@ -473,12 +740,164 @@ public partial class DownloadsView : UserControl
         grid.Children.Add(stack);
     }
 
-    private async Task RunLegacyDownloadAsync(QueueItem item)
+    private static LegacyExplorerNode CloneLegacyExplorerNode(LegacyExplorerNode source)
+    {
+        return new LegacyExplorerNode
+        {
+            Name = source.Name,
+            FullPath = source.FullPath,
+            ArchiveCode = source.ArchiveCode,
+            IsFolder = source.IsFolder,
+            Size = source.Size,
+            CompressedSize = source.CompressedSize,
+            CompressionMethod = source.CompressionMethod,
+            Md5 = source.Md5,
+            IsSelected = source.IsSelected
+        };
+    }
+
+    private static string NormalizeExplorerPath(string path) => path.Replace('\\', '/');
+
+    private async Task RunLegacyExplorerDownloadAsync(QueueItem item)
     {
         item.SetState(QueueItemState.Downloading, "Preparing download...");
+        item.LastProgressTick = Environment.TickCount64;
+        item.SetTotalFiles(item.LegacyExplorerSelectedPaths.Count);
+        PersistHistory();
+
+        using var service = new LegacyExplorerService();
+        service.SetLogContext(item.JobId, item.Title);
+        using var cts = new CancellationTokenSource();
+        item.LegacyExplorerService = service;
+        item.CancellationSource = cts;
+
+        try
+        {
+            List<LegacyExplorerNode> selectedNodes = item.LegacyExplorerSelectedNodes;
+
+            if (selectedNodes.Count == 0 && item.LegacyExplorerSelectedPaths.Count > 0)
+            {
+                List<LegacyExplorerNode> loadedNodes = await service.LoadAsync(item.LegacyExplorerArchives, cts.Token);
+                HashSet<string> wanted = item.LegacyExplorerSelectedPaths
+                    .Select(NormalizeExplorerPath)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                selectedNodes = loadedNodes
+                    .SelectMany(static node => FlattenLegacyNode(node))
+                    .Where(node => !node.IsFolder && wanted.Contains(NormalizeExplorerPath(node.FullPath)))
+                    .ToList();
+
+                item.LegacyExplorerSelectedNodes = selectedNodes.Select(CloneLegacyExplorerNode).ToList();
+            }
+
+            if (selectedNodes.Count == 0)
+                throw new InvalidOperationException("Unable to restore the selected Legacy Explorer files.");
+
+            item.SetTotalFiles(selectedNodes.Count);
+            item.LegacyExplorerMetrics.Reset(selectedNodes.Sum(static node => Math.Max(0, node.Size)));
+
+            var progress = new Progress<LegacyExplorerDownloadProgress>(info =>
+            {
+                PostUi(() => UpdateLegacyExplorerProgress(item, info));
+            });
+
+            await service.DownloadSelectedAsync(
+                item.LegacyExplorerArchives, selectedNodes, item.DestinationDirectory, progress, cts.Token);
+
+            if (item.CancelRequested)
+            {
+                SetCancelled(item);
+                return;
+            }
+
+            item.SetState(QueueItemState.Completed, "Download completed successfully.");
+            item.ProgressBar.Value = 100;
+            item.ProgressText.Text = $"{selectedNodes.Count:N0}/{selectedNodes.Count:N0} files";
+            item.PauseButton.IsEnabled = false;
+            item.CancelButton.IsEnabled = false;
+            item.RemoveButton.Visibility = Visibility.Visible;
+            item.RemoveButton.IsEnabled = true;
+            PersistHistory();
+            UpdateQueueSummary();
+        }
+        catch (OperationCanceledException)
+        {
+            SetCancelled(item);
+        }
+        catch (Exception ex)
+        {
+            if (item.CancelRequested)
+            {
+                SetCancelled(item);
+                return;
+            }
+
+            SetFailed(item, ex.Message);
+        }
+        finally
+        {
+            item.LegacyExplorerService = null;
+            item.CancellationSource = null;
+        }
+    }
+
+    private static IEnumerable<LegacyExplorerNode> FlattenLegacyNode(LegacyExplorerNode node)
+    {
+        yield return node;
+        foreach (LegacyExplorerNode child in FlattenLegacyNodes(node.Children))
+            yield return child;
+    }
+
+    private static IEnumerable<LegacyExplorerNode> FlattenLegacyNodes(IEnumerable<LegacyExplorerNode> nodes)
+    {
+        foreach (LegacyExplorerNode node in nodes)
+        {
+            yield return node;
+            foreach (LegacyExplorerNode child in FlattenLegacyNodes(node.Children))
+                yield return child;
+        }
+    }
+
+    private void UpdateLegacyExplorerProgress(QueueItem item, LegacyExplorerDownloadProgress progress)
+    {
+        if (item.CancelRequested) return;
+
+        double percent = progress.TotalBytes > 0
+            ? progress.CompletedBytes * 100d / progress.TotalBytes
+            : progress.TotalFiles > 0
+                ? progress.CompletedFiles * 100d / progress.TotalFiles
+                : 0;
+
+        item.LastProgressTick = Environment.TickCount64;
+        item.ProgressBar.Value = Math.Clamp(percent, 0, 100);
+        item.ProgressText.Text = $"{progress.CompletedFiles:N0} / {progress.TotalFiles:N0} files";
+        item.StatusDetailText.Text = progress.StatusText;
+        item.StatusText.Text = item.LegacyExplorerService?.IsPaused == true ? "PAUSED" : "DOWNLOADING";
+
+        UnifiedTransferMetricsSnapshot metrics = item.LegacyExplorerMetrics.Update(
+            availableBytes: progress.CompletedBytes,
+            transferredBytes: progress.CompletedBytes);
+
+        SetStatValue(item, "Files", $"{progress.CompletedFiles:N0}/{progress.TotalFiles:N0}");
+        SetStatValue(item, "Speed", FormatSpeed(metrics.SpeedBytesPerSecond));
+        SetStatValue(item, "Eta", FormatEta(metrics.Eta));
+        item.PauseButton.Content = item.LegacyExplorerService?.IsPaused == true ? "RESUME" : "PAUSE";
+    }
+
+    private async Task RunLegacyDownloadAsync(QueueItem item)
+    {
+        if (item.IsLegacyExplorer)
+        {
+            await RunLegacyExplorerDownloadAsync(item);
+            return;
+        }
+
+        item.SetState(QueueItemState.Downloading, "Preparing download...");
+        item.LastProgressTick = Environment.TickCount64;
         PersistHistory();
 
         using var service = new DownloadService();
+        service.SetLogContext(item.JobId, item.Title);
         using var cts = new CancellationTokenSource();
 
         item.LegacyService = service;
@@ -490,7 +909,7 @@ public partial class DownloadsView : UserControl
 
             var progress = new Progress<DownloadProgressInfo>(info =>
             {
-                Dispatcher.InvokeAsync(() =>
+                PostUi(() =>
                 {
                     if (item.CancelRequested) return;
                     UpdateLegacyProgress(item, info);
@@ -552,24 +971,25 @@ public partial class DownloadsView : UserControl
         CancellationToken cancellationToken = operationCts.Token;
 
         var service = new SophonDownloadService();
+        service.SetLogContext(item.JobId, item.Title);
         item.SophonService = service;
 
         service.ChunkProgressCallback = progress =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (!IsCurrentSophonOperation(item, operationGeneration)) return;
                 UpdateSophonChunkProgress(item, progress);
             });
 
         service.ExtractionProgressCallback = progress =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (!IsCurrentSophonOperation(item, operationGeneration)) return;
                 UpdateSophonExtractionProgress(item, progress);
             });
 
         service.ChunkDownloadCompletedCallback = () =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (!IsCurrentSophonOperation(item, operationGeneration)) return;
 
@@ -593,14 +1013,14 @@ public partial class DownloadsView : UserControl
             });
 
         service.DownloadCancelledCallback = () =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (!IsCurrentSophonOperation(item, operationGeneration)) return;
                 SetCancelled(item);
             });
 
         service.ExtractionCompletedCallback = () =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (!IsCurrentSophonOperation(item, operationGeneration)) return;
 
@@ -619,7 +1039,7 @@ public partial class DownloadsView : UserControl
             });
 
         service.ExtractionCancelledCallback = () =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (!item.CancelRequested) return;
 
@@ -710,10 +1130,14 @@ public partial class DownloadsView : UserControl
 
             if (!IsCurrentSophonOperation(item, operationGeneration)) return;
 
+            if (item.SophonSelectedFilePaths.Count > 0)
+                content = FilterSophonContent(content, item.SophonSelectedFilePaths);
+
             item.SophonContent = content;
             SetSophonMetadata(item, content);
 
             item.SetState(QueueItemState.Downloading, "Downloading chunks...");
+            item.LastProgressTick = Environment.TickCount64;
             SetSophonDownloadingControls(item);
             PersistHistory();
 
@@ -760,9 +1184,16 @@ public partial class DownloadsView : UserControl
         }
     }
 
-    private async void ExtractItem(QueueItem item)
+    private void ExtractItem(QueueItem item)
     {
+        if (_shuttingDown) return;
         if (item.Type != QueueItemType.Sophon) return;
+        if (item.BackgroundOperationTask is not null && !item.BackgroundOperationTask.IsCompleted) return;
+        item.BackgroundOperationTask = ExtractItemAsync(item);
+    }
+
+    private async Task ExtractItemAsync(QueueItem item)
+    {
 
         SophonContentSet? content = item.SophonContent;
         if (content is null || item.ExtractRunning) return;
@@ -781,6 +1212,7 @@ public partial class DownloadsView : UserControl
         if (item.SophonService is null)
         {
             item.SophonService = new SophonDownloadService();
+            item.SophonService.SetLogContext(item.JobId, item.Title);
             ConfigureSophonServiceCallbacks(item, item.SophonService);
         }
 
@@ -821,8 +1253,7 @@ public partial class DownloadsView : UserControl
 
             item.RequiresSophonRepair = true;
             item.SophonRepairChunkIds = [ex.ChunkId];
-            item.SetState(QueueItemState.Failed,
-                $"Corrupt patch chunk detected. Repair required: {ex.ChunkId}");
+            item.SetState(QueueItemState.Failed, $"Corrupt patch chunk detected. Repair required: {ex.ChunkId}");
             item.ProgressBar.Value = 0;
             item.PauseButton.IsEnabled = false;
             item.CancelButton.IsEnabled = false;
@@ -834,7 +1265,8 @@ public partial class DownloadsView : UserControl
             item.RemoveButton.Visibility = Visibility.Visible;
             item.RemoveButton.IsEnabled = true;
             PersistHistory();
-            UpdateQueueSummary();
+            if (!_shuttingDown)
+                UpdateQueueSummary();
         }
         catch (Exception ex)
         {
@@ -852,10 +1284,17 @@ public partial class DownloadsView : UserControl
         }
     }
 
-    private async void RepairSophonItem(QueueItem item)
+    private void RepairSophonItem(QueueItem item)
     {
+        if (_shuttingDown) return;
         if (item.Type != QueueItemType.Sophon || item.SophonContent is null || item.SophonRepairChunkIds.Count == 0)
             return;
+        if (item.BackgroundOperationTask is not null && !item.BackgroundOperationTask.IsCompleted) return;
+        item.BackgroundOperationTask = RepairSophonItemAsync(item);
+    }
+
+    private async Task RepairSophonItemAsync(QueueItem item)
+    {
 
         item.RequiresSophonRepair = false;
         item.ExtractRunning = false;
@@ -886,38 +1325,68 @@ public partial class DownloadsView : UserControl
             item.SophonRepairChunkIds.Clear();
         }
 
+        item.SetState(QueueItemState.Queued, "Waiting for an available queue slot...");
+        SetQueuedControls(item);
         PersistHistory();
         UpdateQueueSummary();
-        await RunSophonDownloadAsync(item);
+        SchedulePendingDownloads();
+    }
+
+    private static SophonContentSet FilterSophonContent(
+        SophonContentSet content, IReadOnlyCollection<string> selectedFilePaths)
+    {
+        HashSet<string> wanted = selectedFilePaths
+            .Select(NormalizeExplorerPath)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        List<SophonChunkFile> files = content.AllFiles
+            .Where(file => wanted.Contains(NormalizeExplorerPath(file.File)))
+            .ToList();
+
+        Dictionary<string, string> manifest = content.FileManifest
+            .Where(pair => wanted.Contains(NormalizeExplorerPath(pair.Key)))
+            .ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
+
+        if (files.Count == 0)
+            throw new InvalidOperationException("The selected Sophon Explorer files could not be resolved from the content manifest.");
+
+        return new SophonContentSet
+        {
+            AllFiles = files,
+            FileManifest = manifest,
+            SelectedContent = content.SelectedContent,
+            IsPatch = content.IsPatch,
+            IsLdiffPatch = content.IsLdiffPatch,
+            PatchFromVersion = content.PatchFromVersion,
+            PatchToVersion = content.PatchToVersion
+        };
     }
 
     private void ConfigureSophonServiceCallbacks(QueueItem item, SophonDownloadService service)
     {
         service.ChunkProgressCallback = progress =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (item.CancelRequested) return;
                 UpdateSophonChunkProgress(item, progress);
             });
 
         service.ExtractionProgressCallback = progress =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (item.CancelRequested) return;
                 UpdateSophonExtractionProgress(item, progress);
             });
 
         service.ChunkDownloadCompletedCallback = () =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (item.CancelRequested) return;
 
                 item.SophonChunksReady = true;
-                item.SetState(
-                    QueueItemState.ReadyToExtract,
-                    item.IsPatch
-                        ? "All required patch chunks are ready."
-                        : "All required chunks are ready.");
+                item.SetState(QueueItemState.ReadyToExtract, item.IsPatch
+                    ? "All required patch chunks are ready."
+                    : "All required chunks are ready.");
                 item.ProgressBar.Value = 100;
                 item.ProgressText.Text = "100%";
                 item.PauseButton.IsEnabled = false;
@@ -934,14 +1403,14 @@ public partial class DownloadsView : UserControl
             });
 
         service.DownloadCancelledCallback = () =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (item.CancelRequested) return;
                 SetCancelled(item);
             });
 
         service.ExtractionCompletedCallback = () =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (item.CancelRequested) return;
 
@@ -960,16 +1429,15 @@ public partial class DownloadsView : UserControl
             });
 
         service.ExtractionCancelledCallback = () =>
-            Dispatcher.InvokeAsync(() =>
+            PostUi(() =>
             {
                 if (!item.CancelRequested) return;
 
                 item.CancelRequested = false;
                 item.ExtractRunning = false;
-                item.SetState(QueueItemState.ReadyToExtract,
-                    item.IsPatch
-                        ? "Extraction cancelled. Patch chunks are still ready."
-                        : "Extraction cancelled. Chunks are still ready.");
+                item.SetState(QueueItemState.ReadyToExtract, item.IsPatch
+                    ? "Extraction cancelled. Patch chunks are still ready."
+                    : "Extraction cancelled. Chunks are still ready.");
                 item.ProgressBar.Value = 0;
                 item.ProgressText.Text = item.IsPatch
                     ? "Patch chunks ready"
@@ -993,7 +1461,7 @@ public partial class DownloadsView : UserControl
     private void PauseResumeItem(QueueItem item)
     {
         if (_shuttingDown) return;
-
+        if (item.State == QueueItemState.Queued) return;
         if (item.State == QueueItemState.Cancelled || item.State == QueueItemState.Failed)
         {
             ResumeItem(item);
@@ -1002,6 +1470,30 @@ public partial class DownloadsView : UserControl
 
         if (item.Type == QueueItemType.Legacy)
         {
+            if (item.IsLegacyExplorer)
+            {
+                LegacyExplorerService? explorerService = item.LegacyExplorerService;
+                if (explorerService is null) return;
+
+                if (explorerService.IsPaused)
+                {
+                    explorerService.Resume();
+                    item.SetState(QueueItemState.Downloading, "Download resumed.");
+                    item.LastProgressTick = Environment.TickCount64;
+                    item.PauseButton.Content = "PAUSE";
+                }
+                else
+                {
+                    explorerService.Pause();
+                    item.StatusText.Text = "PAUSED";
+                    item.StatusDetailText.Text = "Download paused.";
+                    item.PauseButton.Content = "RESUME";
+                }
+
+                PersistHistory();
+                return;
+            }
+
             DownloadService? service = item.LegacyService;
             if (service is null) return;
 
@@ -1009,6 +1501,7 @@ public partial class DownloadsView : UserControl
             {
                 service.Resume();
                 item.SetState(QueueItemState.Downloading, "Download resumed.");
+                item.LastProgressTick = Environment.TickCount64;
                 item.PauseButton.Content = "PAUSE";
             }
             else
@@ -1071,18 +1564,16 @@ public partial class DownloadsView : UserControl
         item.ExtractButton.IsEnabled = false;
         item.ProgressBar.Value = 0;
         item.ProgressText.Text = item.Type == QueueItemType.Sophon ? "0 / 0 chunks" : "0 / 0 files";
-
         item.SetState(QueueItemState.Preparing, "Resuming download...");
 
         if (item.Type == QueueItemType.Sophon)
             SetSophonPreparingControls(item);
 
+        item.SetState(QueueItemState.Queued, "Waiting for an available queue slot...");
+        SetQueuedControls(item);
         PersistHistory();
         UpdateQueueSummary();
-
-        _ = item.Type == QueueItemType.Legacy
-            ? RunLegacyDownloadAsync(item)
-            : RunSophonDownloadAsync(item);
+        SchedulePendingDownloads();
     }
 
     private void CancelItem(QueueItem item)
@@ -1097,11 +1588,18 @@ public partial class DownloadsView : UserControl
             return;
         }
 
+        if (item.State == QueueItemState.Queued && !item.SchedulerRunning)
+        {
+            item.CancelRequested = false;
+            SetCancelled(item);
+            SchedulePendingDownloads();
+            return;
+        }
+
         item.CancelRequested = true;
-        item.SetState(QueueItemState.Cancelling,
-            item.Type == QueueItemType.Sophon && item.ExtractRunning
-                ? "Cancelling extraction..."
-                : "Stopping operation...");
+        item.SetState(QueueItemState.Cancelling, item.Type == QueueItemType.Sophon && item.ExtractRunning
+            ? "Cancelling extraction..."
+            : "Stopping operation...");
         PersistHistory();
 
         if (item.Type == QueueItemType.Legacy)
@@ -1110,7 +1608,7 @@ public partial class DownloadsView : UserControl
             item.CancelButton.IsEnabled = false;
             item.ExtractButton.IsEnabled = false;
             item.DeleteChunksCheckBox.IsEnabled = false;
-            item.CancellationSource?.Cancel();
+            TryCancel(item.CancellationSource);
             return;
         }
 
@@ -1121,10 +1619,21 @@ public partial class DownloadsView : UserControl
         }
 
         item.OperationGeneration++;
-        item.SophonOperationCancellationSource?.Cancel();
+        TryCancel(item.SophonOperationCancellationSource);
         item.SophonService?.Cancel();
 
         SetCancelled(item);
+    }
+
+    private static void TryCancel(CancellationTokenSource? cancellationSource)
+    {
+        if (cancellationSource is null) return;
+
+        try
+        {
+            cancellationSource.Cancel();
+        }
+        catch (ObjectDisposedException) {}
     }
 
     private void RemoveItem(QueueItem item)
@@ -1138,18 +1647,18 @@ public partial class DownloadsView : UserControl
             return;
         }
 
-        item.CancellationSource?.Cancel();
+        TryCancel(item.CancellationSource);
         item.CancellationSource?.Dispose();
         item.CancellationSource = null;
 
-        item.SophonOperationCancellationSource?.Cancel();
+        TryCancel(item.SophonOperationCancellationSource);
         item.SophonOperationCancellationSource?.Dispose();
         item.SophonOperationCancellationSource = null;
 
         item.OperationGeneration++;
 
         try { item.SophonService?.Dispose(); }
-        catch { }
+        catch {}
 
         item.SophonService = null;
 
@@ -1172,6 +1681,7 @@ public partial class DownloadsView : UserControl
     private void UpdateLegacyProgress(QueueItem item, DownloadProgressInfo progress)
     {
         if (item.CancelRequested) return;
+        item.LastProgressTick = Environment.TickCount64;
 
         double percent = progress.Percent ??
             (progress.TotalBytes is > 0
@@ -1179,7 +1689,6 @@ public partial class DownloadsView : UserControl
                 : 0);
 
         item.ProgressBar.Value = Math.Clamp(percent, 0, 100);
-
         item.ProgressText.Text = progress.TotalBytes is > 0
             ? $"{FormatSize(progress.BytesReceived)} / {FormatSize(progress.TotalBytes.Value)}"
             : $"{progress.FileIndex:N0}/{progress.FileCount:N0} files";
@@ -1194,7 +1703,6 @@ public partial class DownloadsView : UserControl
         SetStatValue(item, "Partial", "--");
         SetStatValue(item, "Speed", FormatSpeed(progress.SpeedBytesPerSecond));
         SetStatValue(item, "Eta", FormatEta(progress.Eta));
-
         item.StatusText.Text = "DOWNLOADING";
         item.PauseButton.Content = item.LegacyService?.IsPaused == true ? "RESUME" : "PAUSE";
     }
@@ -1202,7 +1710,6 @@ public partial class DownloadsView : UserControl
     private void UpdateSophonChunkProgress(QueueItem item, ChunkDownloadProgress progress)
     {
         if (item.CancelRequested) return;
-
         long availableBytes = Math.Clamp(progress.AvailableBytes, 0, progress.TotalBytes);
 
         double percent = progress.TotalBytes > 0
@@ -1211,12 +1718,12 @@ public partial class DownloadsView : UserControl
                 ? progress.CompletedChunks * 100d / progress.TotalChunks
                 : 0;
 
+        item.LastProgressTick = Environment.TickCount64;
         item.ProgressBar.Value = Math.Clamp(percent, 0, 100);
         item.ProgressText.Text = item.IsPatch
             ? $"{progress.CompletedChunks:N0} / {progress.TotalChunks:N0} patch chunks"
             : $"{progress.CompletedChunks:N0} / {progress.TotalChunks:N0} chunks";
         item.StatusDetailText.Text = progress.StatusText ?? "Downloading chunks...";
-
         SetStatValue(item, "Files", item.SophonContent?.FileCount.ToString("N0") ?? "0");
         SetStatValue(item, "Chunks", progress.TotalChunks.ToString("N0"));
         SetStatValue(item, "Required", FormatSize(progress.TotalBytes));
@@ -1224,7 +1731,6 @@ public partial class DownloadsView : UserControl
         SetStatValue(item, "Partial", FormatSize(progress.PartialCacheBytes));
         SetStatValue(item, "Speed", FormatSpeed(progress.AggregateSpeedBytesPerSecond));
         SetStatValue(item, "Eta", FormatEta(progress.AggregateEta));
-
         item.StatusText.Text = item.SophonService?.IsPaused == true ? "PAUSED" : "DOWNLOADING";
         item.PauseButton.Content = item.SophonService?.IsPaused == true ? "RESUME" : "PAUSE";
     }
@@ -1244,7 +1750,6 @@ public partial class DownloadsView : UserControl
         item.StatusDetailText.Text = progress.StatusText ?? "Extracting files...";
         item.StatusText.Text = item.SophonService?.IsPaused == true ? "PAUSED" : "EXTRACTING";
         item.PauseButton.Content = item.SophonService?.IsPaused == true ? "RESUME" : "PAUSE";
-
         SetStatValue(item, "Files", $"{progress.CompletedFiles:N0}/{progress.TotalFiles:N0}");
         SetStatValue(item, "Speed", "--");
         SetStatValue(item, "Eta", "--");
@@ -1286,7 +1791,6 @@ public partial class DownloadsView : UserControl
         SetStatValue(item, "Partial", "0 B");
         SetStatValue(item, "Speed", "--");
         SetStatValue(item, "Eta", "--");
-
         item.ProgressText.Text = $"0 / {content.UniqueChunkCount:N0} chunks";
     }
 
@@ -1307,6 +1811,30 @@ public partial class DownloadsView : UserControl
 
             break;
         }
+    }
+
+    private static void SetQueuedControls(QueueItem item)
+    {
+        item.PauseButton.Visibility = Visibility.Visible;
+        item.PauseButton.IsEnabled = false;
+        item.PauseButton.Content = "PAUSE";
+        item.CancelButton.Visibility = Visibility.Visible;
+        item.CancelButton.IsEnabled = true;
+        item.ExtractButton.Visibility = Visibility.Collapsed;
+        item.ExtractButton.IsEnabled = false;
+        item.RemoveButton.Visibility = Visibility.Collapsed;
+    }
+
+    private static void SetActiveControls(QueueItem item)
+    {
+        item.PauseButton.Visibility = Visibility.Visible;
+        item.PauseButton.IsEnabled = true;
+        item.PauseButton.Content = "PAUSE";
+        item.CancelButton.Visibility = Visibility.Visible;
+        item.CancelButton.IsEnabled = true;
+        item.ExtractButton.Visibility = Visibility.Collapsed;
+        item.ExtractButton.IsEnabled = false;
+        item.RemoveButton.Visibility = Visibility.Collapsed;
     }
 
     private void SetItemControls(QueueItem item)
@@ -1356,12 +1884,8 @@ public partial class DownloadsView : UserControl
     private void SetCancelled(QueueItem item)
     {
         item.CancelRequested = false;
-        item.SophonOperationCancellationSource?.Cancel();
-
-        item.SetState(
-            QueueItemState.Cancelled,
-            "Operation cancelled. Partial data has been kept.");
-
+        TryCancel(item.SophonOperationCancellationSource);
+        item.SetState(QueueItemState.Cancelled, "Operation cancelled. Partial data has been kept.");
         item.ProgressBar.Value = 0;
         item.PauseButton.Visibility = Visibility.Visible;
         item.PauseButton.IsEnabled = true;
@@ -1384,11 +1908,7 @@ public partial class DownloadsView : UserControl
     private void SetFailed(QueueItem item, string message)
     {
         item.CancelRequested = false;
-
-        item.SetState(
-            QueueItemState.Failed,
-            string.IsNullOrWhiteSpace(message) ? "Download failed." : message);
-
+        item.SetState(QueueItemState.Failed, string.IsNullOrWhiteSpace(message) ? "Download failed." : message);
         item.PauseButton.Visibility = Visibility.Visible;
         item.PauseButton.IsEnabled = true;
         item.PauseButton.Content = "RESUME";
@@ -1424,6 +1944,7 @@ public partial class DownloadsView : UserControl
         int completed = _items.Count(item => item.State == QueueItemState.Completed);
         int cancelled = _items.Count(item => item.State == QueueItemState.Cancelled);
         int failed = _items.Count(item => item.State == QueueItemState.Failed);
+        int queued = _items.Count(item => item.State == QueueItemState.Queued);
 
         bool empty = _items.Count == 0;
         EmptyQueuePanel.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
@@ -1435,7 +1956,7 @@ public partial class DownloadsView : UserControl
         }
 
         QueueSummaryText.Text =
-            $"{_items.Count:N0} job(s) • {active:N0} active • " +
+            $"{_items.Count:N0} job(s) • {active:N0} active • {queued:N0} queued • " +
             $"{completed:N0} completed • {cancelled:N0} cancelled • {failed:N0} failed";
     }
 
@@ -1445,6 +1966,9 @@ public partial class DownloadsView : UserControl
         {
             foreach (DownloadHistoryEntry entry in _historyStore.LoadEntries())
             {
+                if (_shuttingDown)
+                    break;
+
                 try
                 {
                     await RestoreHistoryEntryAsync(entry);
@@ -1455,7 +1979,8 @@ public partial class DownloadsView : UserControl
                 }
             }
 
-            UpdateQueueSummary();
+            if (!_shuttingDown)
+                UpdateQueueSummary();
         }
         catch (Exception ex)
         {
@@ -1499,7 +2024,19 @@ public partial class DownloadsView : UserControl
             .ToList(),
         PatchFromVersion = item.PatchFromVersion,
         State = (int)item.State,
-        StatusMessage = item.StatusDetailText?.Text
+        StatusMessage = item.StatusDetailText?.Text,
+        LegacyExplorerArchivesJson = item.IsLegacyExplorer
+            ? JsonSerializer.Serialize(item.LegacyExplorerArchives.Select(archive => new LegacyExplorerArchiveHistory
+            {
+                Code = archive.Code,
+                Name = archive.Name,
+                Urls = archive.Urls.ToList()
+            }))
+            : null,
+        LegacyExplorerSelectedPaths = item.IsLegacyExplorer
+            ? item.LegacyExplorerSelectedPaths.ToList()
+            : [],
+        SophonSelectedFilePaths = item.SophonSelectedFilePaths.ToList()
     };
 
     private async Task RestoreHistoryEntryAsync(DownloadHistoryEntry entry)
@@ -1515,17 +2052,52 @@ public partial class DownloadsView : UserControl
 
         if (entryType == QueueItemType.Legacy)
         {
+            if (!string.IsNullOrWhiteSpace(entry.LegacyExplorerArchivesJson))
+            {
+                List<LegacyExplorerArchiveHistory>? archiveHistory =
+                    JsonSerializer.Deserialize<List<LegacyExplorerArchiveHistory>>(entry.LegacyExplorerArchivesJson);
+
+                if (archiveHistory is null || archiveHistory.Count == 0 || entry.LegacyExplorerSelectedPaths.Count == 0)
+                    return;
+
+                var explorerItem = new QueueItem(
+                    QueueItemType.Legacy, entry.Title, entry.DestinationDirectory, [], null, null, null, false)
+                {
+                    LegacyExplorerArchives = archiveHistory
+                        .Select(archive => new LegacyExplorerArchive(archive.Code, archive.Name, archive.Urls))
+                        .ToList(),
+                    LegacyExplorerSelectedPaths = entry.LegacyExplorerSelectedPaths
+                        .Select(NormalizeExplorerPath)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList(),
+                    SelectedContentNames = entry.SelectedContentNames.ToList()
+                };
+
+                AddItem(explorerItem, false);
+
+                if (IsInterruptedState(entryState))
+                {
+                    explorerItem.SetState(QueueItemState.Cancelled, "Download interrupted by application close. Ready to resume.");
+                    explorerItem.PauseButton.Content = "RESUME";
+                    explorerItem.PauseButton.IsEnabled = true;
+                    explorerItem.CancelButton.IsEnabled = false;
+                    explorerItem.CancelButton.Visibility = Visibility.Collapsed;
+                    explorerItem.RemoveButton.Visibility = Visibility.Visible;
+                    explorerItem.RemoveButton.IsEnabled = true;
+                }
+                else
+                {
+                    explorerItem.SetState(entryState, entry.StatusMessage ?? GetDefaultStateMessage(entryState));
+                    ApplyRestoredStateControls(explorerItem);
+                }
+
+                return;
+            }
+
             if (entry.LegacyUrls.Count == 0) return;
 
             var legacyItem = new QueueItem(
-                QueueItemType.Legacy,
-                entry.Title,
-                entry.DestinationDirectory,
-                entry.LegacyUrls,
-                null,
-                null,
-                null,
-                false);
+                QueueItemType.Legacy, entry.Title, entry.DestinationDirectory, entry.LegacyUrls, null, null, null, false);
 
             legacyItem.SelectedContentNames = entry.SelectedContentNames
                 .Where(name => !string.IsNullOrWhiteSpace(name))
@@ -1564,10 +2136,7 @@ public partial class DownloadsView : UserControl
         List<GameInfo> supportedGames = SophonGameService.GetSupportedGames() ?? [];
 
         GameInfo? game = supportedGames.FirstOrDefault(candidate =>
-            string.Equals(
-                candidate.GameId,
-                entry.GameId,
-                StringComparison.OrdinalIgnoreCase));
+            string.Equals(candidate.GameId, entry.GameId, StringComparison.OrdinalIgnoreCase));
 
         if (game is null) return;
 
@@ -1578,6 +2147,11 @@ public partial class DownloadsView : UserControl
             game, entry.Version, channel, entry.DeleteChunksAfterExtraction);
 
         sophonItem.PatchFromVersion = entry.PatchFromVersion;
+        sophonItem.SophonSelectedFilePaths = entry.SophonSelectedFilePaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Select(NormalizeExplorerPath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         sophonItem.SelectedCategoryIds = entry.SelectedCategoryIds?
             .Where(id => !string.IsNullOrWhiteSpace(id))
@@ -1612,8 +2186,7 @@ public partial class DownloadsView : UserControl
                 sophonItem.Manifest = manifest;
 
                 List<SophonContentOption> contentOptions = BuildSelectedHistoryContent(
-                    manifest,
-                    sophonItem.SelectedCategoryIds);
+                    manifest, sophonItem.SelectedCategoryIds);
 
                 if (contentOptions.Count > 0)
                 {
@@ -1625,13 +2198,12 @@ public partial class DownloadsView : UserControl
                     SophonContentSet content = await service.LoadSelectedContentAsync(
                         manifest, contentOptions);
 
+                    if (sophonItem.SophonSelectedFilePaths.Count > 0)
+                        content = FilterSophonContent(content, sophonItem.SophonSelectedFilePaths);
+
                     sophonItem.SophonContent = content;
                     SetSophonMetadata(sophonItem, content);
-
-                    sophonItem.SetState(
-                        QueueItemState.ReadyToExtract,
-                        entry.StatusMessage ?? "All required chunks are ready.");
-
+                    sophonItem.SetState(QueueItemState.ReadyToExtract, entry.StatusMessage ?? "All required chunks are ready.");
                     sophonItem.PauseButton.IsEnabled = false;
                     sophonItem.PauseButton.Visibility = Visibility.Collapsed;
                     sophonItem.CancelButton.IsEnabled = false;
@@ -1722,6 +2294,7 @@ public partial class DownloadsView : UserControl
             QueueItemState.ReadyToExtract => "Ready to extract.",
             QueueItemState.Extracting => "Extracting files...",
             QueueItemState.Downloading => "Downloading...",
+            QueueItemState.Queued => "Waiting for an available queue slot...",
             QueueItemState.Preparing => "Preparing...",
             QueueItemState.Cancelling => "Stopping operation...",
             _ => "Ready."
@@ -1780,15 +2353,13 @@ public partial class DownloadsView : UserControl
     private static string FormatSpeed(long? bytesPerSecond)
     {
         return bytesPerSecond is not > 0
-            ? "--"
-            : $"{FormatSize(bytesPerSecond.Value)}/s";
+            ? "--" : $"{FormatSize(bytesPerSecond.Value)}/s";
     }
 
     private static string FormatSpeed(double bytesPerSecond)
     {
         return bytesPerSecond <= 0
-            ? "--"
-            : $"{FormatSize((long)bytesPerSecond)}/s";
+            ? "--" : $"{FormatSize((long)bytesPerSecond)}/s";
     }
 
     private static string FormatEta(TimeSpan? eta)
@@ -1820,6 +2391,7 @@ public partial class DownloadsView : UserControl
 
     private enum QueueItemState
     {
+        Queued,
         Preparing,
         Downloading,
         ReadyToExtract,
@@ -1830,8 +2402,16 @@ public partial class DownloadsView : UserControl
         Failed
     }
 
+    private sealed class LegacyExplorerArchiveHistory
+    {
+        public string Code { get; set; } = "";
+        public string Name { get; set; } = "";
+        public List<string> Urls { get; set; } = [];
+    }
+
     private sealed class QueueItem
     {
+        public string JobId { get; }
         public QueueItemType Type { get; }
         public string Title { get; }
         public string DestinationDirectory { get; }
@@ -1852,6 +2432,13 @@ public partial class DownloadsView : UserControl
         public CancellationTokenSource? SophonOperationCancellationSource { get; set; }
         public long OperationGeneration { get; set; }
         public DownloadService? LegacyService { get; set; }
+        public LegacyExplorerService? LegacyExplorerService { get; set; }
+        public UnifiedTransferMetrics LegacyExplorerMetrics { get; } = new();
+        public List<LegacyExplorerArchive> LegacyExplorerArchives { get; set; } = [];
+        public List<LegacyExplorerNode> LegacyExplorerSelectedNodes { get; set; } = [];
+        public List<string> LegacyExplorerSelectedPaths { get; set; } = [];
+        public List<string> SophonSelectedFilePaths { get; set; } = [];
+        public bool IsLegacyExplorer => LegacyExplorerArchives.Count > 0 && LegacyExplorerSelectedPaths.Count > 0;
         public CancellationTokenSource? CancellationSource { get; set; }
         public Border? Card { get; set; }
         public TextBlock SelectedContentText { get; set; } = null!;
@@ -1866,22 +2453,22 @@ public partial class DownloadsView : UserControl
         public CheckBox DeleteChunksCheckBox { get; set; } = null!;
         public Grid Stats { get; set; } = null!;
         public bool CancelRequested { get; set; }
+        public long LastProgressTick { get; set; }
         public bool SophonChunksReady { get; set; }
         public bool ExtractRunning { get; set; }
         public bool RequiresSophonRepair { get; set; }
         public List<string> SophonRepairChunkIds { get; set; } = [];
+        public bool SchedulerRunning { get; set; }
+        public Task? ScheduledTask { get; set; }
+        public Task? BackgroundOperationTask { get; set; }
         public QueueItemState State { get; private set; }
 
         public QueueItem(
-            QueueItemType type,
-            string title,
-            string destinationDirectory,
-            IReadOnlyList<string> legacyUrls,
-            GameInfo? game,
-            string? version,
-            string? channel,
+            QueueItemType type, string title, string destinationDirectory,
+            IReadOnlyList<string> legacyUrls, GameInfo? game, string? version, string? channel,
             bool deleteChunksAfterExtraction)
         {
+            JobId = $"JOB-{Guid.NewGuid():N}"[..12].ToUpperInvariant();
             Type = type;
             Title = title;
             DestinationDirectory = Path.GetFullPath(destinationDirectory);
@@ -1890,7 +2477,7 @@ public partial class DownloadsView : UserControl
             Version = version;
             Channel = channel;
             DeleteChunksAfterExtraction = deleteChunksAfterExtraction;
-            State = QueueItemState.Preparing;
+            State = QueueItemState.Queued;
         }
 
         public void SetState(QueueItemState state, string message)
@@ -1901,6 +2488,7 @@ public partial class DownloadsView : UserControl
             {
                 StatusText.Text = state switch
                 {
+                    QueueItemState.Queued => "QUEUED",
                     QueueItemState.Preparing => "PREPARING",
                     QueueItemState.Downloading => "DOWNLOADING",
                     QueueItemState.ReadyToExtract => "READY",
@@ -1932,10 +2520,7 @@ public partial class DownloadsView : UserControl
                 }
 
                 TextBlock? target = stack.Children.OfType<TextBlock>().FirstOrDefault(text =>
-                    string.Equals(
-                        text.Tag as string,
-                        "FilesValue",
-                        StringComparison.OrdinalIgnoreCase));
+                    string.Equals(text.Tag as string, "FilesValue", StringComparison.OrdinalIgnoreCase));
 
                 if (target is not null)
                     target.Text = $"0/{count:N0}";

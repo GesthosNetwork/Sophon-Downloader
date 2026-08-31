@@ -32,9 +32,7 @@ public sealed class LegacyManifestService
                     url, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
                 response.EnsureSuccessStatusCode();
-
                 string json = await response.Content.ReadAsStringAsync(cancellationToken);
-
                 using JsonDocument document = JsonDocument.Parse(json);
 
                 if (!document.RootElement.TryGetProperty("_metadata", out JsonElement metadata))
@@ -48,8 +46,7 @@ public sealed class LegacyManifestService
                 string name = metadata.GetProperty("name").GetString()
                     ?? throw new InvalidDataException($"Legacy manifest '{fileName}' has an invalid 'name'.");
 
-                LegacyManifest? manifest =
-                    JsonSerializer.Deserialize<LegacyManifest>(json);
+                LegacyManifest? manifest = JsonSerializer.Deserialize<LegacyManifest>(json);
 
                 if (manifest is null || manifest.Count == 0)
                     throw new InvalidDataException($"Legacy manifest for {name} is empty.");
@@ -63,10 +60,7 @@ public sealed class LegacyManifestService
 
                 Logger.Info($"Online Legacy manifest loaded: {name}, versions={manifest.Count:N0}");
             }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 Logger.Error(ex, $"Failed to load online Legacy manifest: {fileName}");

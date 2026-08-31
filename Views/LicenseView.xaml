@@ -48,6 +48,18 @@
                         <Run Text="The source code of SophonDownloader is licensed under the GNU General Public License version 3.0. The full license text is shipped with the source in the LICENSE file."/>
                     </TextBlock>
 
+                    <TextBlock Text="Official Distribution Notice"
+                               Foreground="#E53935"
+                               FontSize="15"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8"/>
+
+                    <TextBlock x:Name="DistributionNoticeText"
+                               Foreground="#E53935"
+                               FontSize="11"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,18"/>
+
                     <TextBlock Text="Third-Party Software"
                                Foreground="{DynamicResource PrimaryTextBrush}"
                                FontSize="15"

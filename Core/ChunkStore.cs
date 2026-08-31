@@ -69,7 +69,7 @@ public sealed class ChunkStore
             if (!Directory.EnumerateFileSystemEntries(ChunkDirectory).Any())
                 Directory.Delete(ChunkDirectory, false);
         }
-        catch { }
+        catch {}
     }
 
     private static void TryDelete(string path)
@@ -77,7 +77,7 @@ public sealed class ChunkStore
         if (!File.Exists(path)) return;
 
         try { File.Delete(path); }
-        catch { }
+        catch {}
     }
 
     private static void ValidateChunkId(string chunkId)

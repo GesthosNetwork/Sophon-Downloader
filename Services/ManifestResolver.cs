@@ -101,9 +101,7 @@ public static class ManifestResolver
         return [];
     }
 
-    public static string BuildFullVoiceUrl(
-        LegacyVersion version,
-        string language)
+    public static string BuildFullVoiceUrl(LegacyVersion version, string language)
     {
         if (!version.Voice.TryGetValue(language, out LegacyPackage? package) ||
             !HasValidUrl(package.Url))

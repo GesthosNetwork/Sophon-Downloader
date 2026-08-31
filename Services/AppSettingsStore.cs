@@ -6,6 +6,7 @@ internal static class ConcurrencyDefaults
 {
     public static int Threads => Math.Max(2, (Environment.ProcessorCount + 3) / 4);
     public static int MaxHttpConnections => Math.Max(4, Threads);
+    public const int DefaultMaxConcurrentDownloads = 3;
 }
 
 public sealed class AppSettings
@@ -27,6 +28,7 @@ public sealed class AppSettings
     public string BackgroundImagePath { get; set; } = string.Empty;
     public bool ShowConsole { get; set; } = false;
     public string DownloadMode { get; set; } = "Parallel";
+    public int MaxConcurrentDownloads { get; set; } = ConcurrencyDefaults.DefaultMaxConcurrentDownloads;
     public string LogLevel { get; set; } = "Debug";
 }
 
@@ -67,6 +69,7 @@ public static class AppSettingsStore
                     BackgroundImagePath = Get(values, "BackgroundImagePath", string.Empty),
                     ShowConsole = GetBool(values, "ShowConsole", false),
                     DownloadMode = NormalizeDownloadMode(Get(values, "DownloadMode", "Parallel")),
+                    MaxConcurrentDownloads = GetInt(values, "MaxConcurrentDownloads", ConcurrencyDefaults.DefaultMaxConcurrentDownloads, 1, 8),
                     LogLevel = NormalizeLogLevel(Get(values, "LogLevel", "Debug"))
                 };
                 _cachedSettings = settings;
@@ -93,9 +96,7 @@ public static class AppSettingsStore
             using SqliteTransaction transaction = connection.BeginTransaction();
             using SqliteCommand command = connection.CreateCommand();
             command.Transaction = transaction;
-            command.CommandText = "INSERT INTO AppSettings (Key, Value) VALUES ($key, $value) " +
-                                  "ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;";
-
+            command.CommandText = "INSERT INTO AppSettings (Key, Value) VALUES ($key, $value) " + "ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;";
             SaveValue(command, "ThemePalette", settings.ThemePalette);
             SaveValue(command, "ThemeMode", settings.ThemeMode);
             SaveValue(command, "CustomAccentHex", NormalizeHexColor(settings.CustomAccentHex, "#FF7A00"));
@@ -111,8 +112,8 @@ public static class AppSettingsStore
             SaveValue(command, "BackgroundImagePath", settings.BackgroundImagePath?.Trim() ?? string.Empty);
             SaveValue(command, "ShowConsole", settings.ShowConsole ? "1" : "0");
             SaveValue(command, "DownloadMode", NormalizeDownloadMode(settings.DownloadMode));
+            SaveValue(command, "MaxConcurrentDownloads", Math.Clamp(settings.MaxConcurrentDownloads, 1, 8).ToString());
             SaveValue(command, "LogLevel", NormalizeLogLevel(settings.LogLevel));
-
             transaction.Commit();
             _cachedSettings = Clone(settings);
         }
@@ -135,6 +136,7 @@ public static class AppSettingsStore
         BackgroundImagePath = settings.BackgroundImagePath,
         ShowConsole = settings.ShowConsole,
         DownloadMode = settings.DownloadMode,
+        MaxConcurrentDownloads = settings.MaxConcurrentDownloads,
         LogLevel = settings.LogLevel
     };
 

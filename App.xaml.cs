@@ -23,7 +23,7 @@ public partial class App : Application
         catch (Exception ex)
         {
             LogManager.GlobalThreshold = NLog.LogLevel.Debug;
-            try { Logger.Warn(ex, "Failed to apply configured log level; falling back to Debug."); } catch { }
+            try { Logger.Warn(ex, "Failed to apply configured log level; falling back to Debug."); } catch {}
         }
     }
 
@@ -55,7 +55,8 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            try { Logger.Warn(ex, "Failed to apply Show Console setting."); } catch { }
+            try { Logger.Warn(ex, "Failed to apply Show Console setting."); }
+            catch {}
         }
     }
 
@@ -66,6 +67,8 @@ public partial class App : Application
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        DistributionIntegrityGuard.Verify();
+
         try
         {
             LogManager.Setup().LoadConfigurationFromAssemblyResource(Assembly.GetExecutingAssembly());
@@ -86,13 +89,7 @@ public partial class App : Application
         {
             Logger.Fatal(ex, "Fatal application startup error.");
             LogManager.Flush();
-
-            MessageBox.Show(
-                $"SophonDownloader failed to start.\n\nType:\n{ex.GetType().FullName}\n\nMessage:\n{ex.Message}\n\nDetails:\n{ex}",
-                "SophonDownloader - Startup Error",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-
+            MessageBox.Show($"SophonDownloader failed to start.\n\nType:\n{ex.GetType().FullName}\n\nMessage:\n{ex.Message}\n\nDetails:\n{ex}", "SophonDownloader - Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown(1);
         }
     }
@@ -105,23 +102,23 @@ public partial class App : Application
             LogManager.Flush();
             LogManager.Shutdown();
         }
-        catch { }
+        catch {}
 
         base.OnExit(e);
     }
 
-    private void App_DispatcherUnhandledException(
-        object sender,
-        System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    private void App_DispatcherUnhandledException(object sender, System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
     {
         try { Logger.Fatal(e.Exception, "Unhandled WPF dispatcher exception."); }
-        catch { }
+        catch {}
 
-        MessageBox.Show(
-            $"An unexpected application error occurred.\n\n{e.Exception}",
-            "SophonDownloader - Runtime Error",
-            MessageBoxButton.OK,
-            MessageBoxImage.Error);
+        if (MainWindow is MainWindow mainWindow && mainWindow.IsShuttingDown)
+        {
+            e.Handled = true;
+            return;
+        }
+
+        MessageBox.Show($"An unexpected application error occurred.\n\n{e.Exception}", "SophonDownloader - Runtime Error", MessageBoxButton.OK, MessageBoxImage.Error);
 
         e.Handled = true;
     }
@@ -135,15 +132,14 @@ public partial class App : Application
             Logger.Fatal(ex, "Unhandled AppDomain exception.");
             LogManager.Flush();
         }
-        catch { }
+        catch {}
     }
 
     private void TaskScheduler_UnobservedTaskException(
-        object? sender,
-        UnobservedTaskExceptionEventArgs e)
+        object? sender, UnobservedTaskExceptionEventArgs e)
     {
         try { Logger.Error(e.Exception, "Unobserved task exception."); }
-        catch { }
+        catch {}
 
         e.SetObserved();
     }

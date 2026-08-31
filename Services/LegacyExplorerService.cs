@@ -24,7 +24,7 @@ public sealed class LegacyExplorerDownloadProgress
     public string StatusText { get; init; } = "";
 }
 
-public sealed class LegacyExplorerService
+public sealed class LegacyExplorerService : IDisposable
 {
     private static readonly Logger Logger = LogManager.GetCurrentClassLogger();
 
@@ -36,6 +36,16 @@ public sealed class LegacyExplorerService
     private readonly ManualResetEventSlim _pauseGate = new(true);
     private readonly object _downloadSync = new();
     private CancellationTokenSource? _downloadCts;
+    private string _logJobId = "n/a";
+    private string _logJobTitle = "n/a";
+
+    public void SetLogContext(string jobId, string jobTitle)
+    {
+        _logJobId = string.IsNullOrWhiteSpace(jobId) ? "n/a" : jobId;
+        _logJobTitle = string.IsNullOrWhiteSpace(jobTitle) ? "n/a" : jobTitle;
+    }
+
+    private string JobContext => $"Job={_logJobId}; Title=\"{_logJobTitle}\"";
 
     public bool IsPaused => !_pauseGate.IsSet;
 
@@ -53,16 +63,11 @@ public sealed class LegacyExplorerService
         foreach (LegacyExplorerArchive archive in archives)
         {
             cancellationToken.ThrowIfCancellationRequested();
-
-            List<string> validUrls = archive.Urls
-                .Where(ManifestResolver.HasValidUrl).ToList();
+            List<string> validUrls = archive.Urls.Where(ManifestResolver.HasValidUrl).ToList();
 
             if (validUrls.Count == 0) continue;
 
-            Logger.Info(
-                $"Loading Legacy archive explorer. " +
-                $"Archive={archive.Name}, Parts={validUrls.Count:N0}");
-
+            Logger.Info($"Loading Legacy archive explorer. " + $"Archive={archive.Name}, Parts={validUrls.Count:N0}");
             Logger.Debug($"Legacy Explorer archive URLs prepared: Archive={archive.Name}, UrlCount={validUrls.Count:N0}. ");
             foreach (string url in validUrls)
                 Logger.Debug($"Legacy Explorer archive part URL: Archive={archive.Name}, URL={url}");
@@ -72,9 +77,8 @@ public sealed class LegacyExplorerService
 
             Logger.Info($"Legacy Explorer archive metadata loaded: Archive={archive.Name}, Parts={parts.Count:N0}, TotalBytes={parts.Sum(p => p.Length):N0}.");
 
-            List<LegacyExplorerNode> nodes =
-                await Task.Run(
-                    () => BuildTree(parts, archive.Code, cancellationToken), cancellationToken);
+            List<LegacyExplorerNode> nodes = await Task.Run(
+                () => BuildTree(parts, archive.Code, cancellationToken), cancellationToken);
 
             MergeTrees(result, nodes);
         }
@@ -131,8 +135,7 @@ public sealed class LegacyExplorerService
                 nameof(destinationDirectory));
 
         List<LegacyExplorerNode> files = selectedNodes
-            .Where(n =>
-                n is not null && !n.IsFolder && !string.IsNullOrWhiteSpace(n.FullPath))
+            .Where(n => n is not null && !n.IsFolder && !string.IsNullOrWhiteSpace(n.FullPath))
             .GroupBy(n => n.FullPath, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First()).ToList();
 
@@ -141,7 +144,7 @@ public sealed class LegacyExplorerService
 
         Directory.CreateDirectory(destinationDirectory);
 
-        Logger.Info($"Legacy Explorer download started. Files={files.Count:N0}, Destination={destinationDirectory}, TotalBytes={files.Sum(f => f.Size):N0}.");
+        Logger.Info($"Legacy Explorer download started. {JobContext}; Files={files.Count:N0}; Destination={destinationDirectory}; TotalBytes={files.Sum(f => f.Size):N0}.");
         foreach (LegacyExplorerNode file in files)
             Logger.Debug($"Legacy Explorer queued file: {file.FullPath} ({file.Size:N0} bytes), ArchiveCode={file.ArchiveCode}");
 
@@ -161,7 +164,7 @@ public sealed class LegacyExplorerService
         {
             await Task.Run(
                 () => DownloadSelectedCore(archives, files, destinationDirectory, progress, linkedCts.Token), linkedCts.Token);
-            Logger.Info($"Legacy Explorer download completed successfully. Files={files.Count:N0}, Destination={destinationDirectory}.");
+            Logger.Info($"Legacy Explorer download completed successfully. {JobContext}; Files={files.Count:N0}; Destination={destinationDirectory}.");
         }
         catch (OperationCanceledException)
         {
@@ -191,14 +194,14 @@ public sealed class LegacyExplorerService
         {
             if (_downloadCts is null) return;
             _pauseGate.Reset();
-            Logger.Info("Legacy Explorer download paused.");
+            Logger.Info($"Legacy Explorer download paused. {JobContext}");
         }
     }
 
     public void Resume()
     {
         _pauseGate.Set();
-        Logger.Info("Legacy Explorer download resumed.");
+        Logger.Info($"Legacy Explorer download resumed. {JobContext}");
     }
 
     public void Cancel()
@@ -206,11 +209,23 @@ public sealed class LegacyExplorerService
         lock (_downloadSync)
         {
             if (_downloadCts is not null)
-                Logger.Info("Legacy Explorer cancellation requested.");
+                Logger.Info($"Legacy Explorer cancellation requested. {JobContext}");
             _downloadCts?.Cancel();
         }
 
         _pauseGate.Set();
+    }
+
+    public void Dispose()
+    {
+        _pauseGate.Set();
+        lock (_downloadSync)
+        {
+            _downloadCts?.Cancel();
+        }
+        _downloadCts?.Dispose();
+        _pauseGate.Dispose();
+        GC.SuppressFinalize(this);
     }
 
     private void DownloadSelectedCore(
@@ -297,9 +312,7 @@ public sealed class LegacyExplorerService
                     Directory.CreateDirectory(outputDirectory);
 
                 string temporaryPath = $"{outputPath}.download.{Guid.NewGuid():N}.tmp";
-
                 TryDeleteFile(temporaryPath);
-
                 long currentFileBytes = 0;
 
                 progress?.Report(new LegacyExplorerDownloadProgress
@@ -645,9 +658,7 @@ public sealed class LegacyExplorerService
     }
 
     private static List<LegacyExplorerNode> BuildZipTree(
-        LegacyArchiveStream archiveStream,
-        string archiveCode,
-        CancellationToken cancellationToken)
+        LegacyArchiveStream archiveStream, string archiveCode, CancellationToken cancellationToken)
     {
         using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read, false);
 
@@ -752,12 +763,10 @@ public sealed class LegacyExplorerService
     }
 
     private static void MergeTrees(
-        List<LegacyExplorerNode> destination,
-        List<LegacyExplorerNode> source)
+        List<LegacyExplorerNode> destination, List<LegacyExplorerNode> source)
     {
-        var lookup =
-            new Dictionary<string, LegacyExplorerNode>(
-                StringComparer.OrdinalIgnoreCase);
+        var lookup = new Dictionary<string, LegacyExplorerNode>(
+            StringComparer.OrdinalIgnoreCase);
 
         foreach (LegacyExplorerNode node in destination)
             AddNodesToLookup(node, lookup);
@@ -767,8 +776,7 @@ public sealed class LegacyExplorerService
     }
 
     private static void AddNodesToLookup(
-        LegacyExplorerNode node,
-        Dictionary<string, LegacyExplorerNode> lookup)
+        LegacyExplorerNode node, Dictionary<string, LegacyExplorerNode> lookup)
     {
         lookup[node.FullPath] = node;
 
@@ -920,8 +928,7 @@ public sealed class LegacyExplorerService
                 headResponse.EnsureSuccessStatusCode();
             }
         }
-        catch (OperationCanceledException)
-        { throw; }
+        catch (OperationCanceledException) { throw; }
         catch (Exception ex)
         {
             Logger.Debug(ex, $"Legacy Explorer HEAD size probe failed; falling back to range request: {url}");
@@ -1024,11 +1031,7 @@ public sealed class LegacyExplorerService
     private static void TryDeleteFile(string path)
     {
         if (!File.Exists(path)) return;
-
-        try
-        {
-            File.Delete(path);
-        }
+        try { File.Delete(path); }
         catch {}
     }
 }

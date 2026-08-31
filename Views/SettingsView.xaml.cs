@@ -40,6 +40,7 @@ public partial class SettingsView : UserControl
         FontFamily = (FontFamilyComboBox.SelectedItem as FontFamily)?.Source ?? "Segoe UI Variable",
         UseAria2c = UseAria2cCheckBox.IsChecked == true,
         DownloadMode = (DownloadModeComboBox.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Parallel",
+        MaxConcurrentDownloads = ParseInt(MaxConcurrentDownloadsTextBox.Text, ConcurrencyDefaults.DefaultMaxConcurrentDownloads, 1, 8),
         Threads = ParseInt(ThreadsTextBox.Text, ConcurrencyDefaults.Threads, 1, 64),
         MaxHttpHandle = ParseInt(MaxHttpHandleTextBox.Text, ConcurrencyDefaults.MaxHttpConnections, 1, 256),
         SpeedLimitKbps = ParseInt(SpeedLimitTextBox.Text, 0, 0, 1024 * 1024),
@@ -66,6 +67,7 @@ public partial class SettingsView : UserControl
         UseAria2cCheckBox.IsChecked = settings.UseAria2c;
         SelectItem(DownloadModeComboBox, settings.DownloadMode, "Parallel");
 
+        MaxConcurrentDownloadsTextBox.Text = settings.MaxConcurrentDownloads.ToString();
         ThreadsTextBox.Text = settings.Threads.ToString();
 
         MaxHttpHandleTextBox.Text = settings.MaxHttpHandle.ToString();
@@ -250,6 +252,7 @@ public partial class SettingsView : UserControl
     private bool CanAutoSaveCurrentSettings()
     {
         return
+            IsInRange(MaxConcurrentDownloadsTextBox.Text, 1, 8) &&
             IsInRange(ThreadsTextBox.Text, 1, 64) &&
             IsInRange(MaxHttpHandleTextBox.Text, 1, 256) &&
             IsInRange(SpeedLimitTextBox.Text, 0, 1024 * 1024, allowEmpty: true) &&
@@ -313,8 +316,7 @@ public partial class SettingsView : UserControl
     }
 
     private void UseAria2cCheckBox_Changed(
-        object sender,
-        RoutedEventArgs e)
+        object sender, RoutedEventArgs e)
     {
         UpdateNetworkControlState();
         if (!_isLoadingSettings && IsLoaded)

@@ -1,4 +1,3 @@
-using System.Net.Http.Headers;
 using SharpCompress.Archives.SevenZip;
 
 namespace SophonDownloader.Services;
@@ -67,9 +66,7 @@ public sealed class ApplicationUpdateService
             ?? throw new InvalidOperationException("Unable to determine the application directory.");
 
         string executableName = Path.GetFileName(executablePath);
-        string updateRoot = Path.Combine(
-            Path.GetTempPath(),
-            $"SophonDownloader-Update-{Guid.NewGuid():N}");
+        string updateRoot = Path.Combine(Path.GetTempPath(), $"SophonDownloader-Update-{Guid.NewGuid():N}");
         string packagePath = Path.Combine(updateRoot, update.FileName);
         string stagingDirectory = Path.Combine(updateRoot, "staging");
         string updaterPath = Path.Combine(updateRoot, "apply-update.bat");
@@ -89,10 +86,7 @@ public sealed class ApplicationUpdateService
             }
 
             string? packageExecutable = await ExtractSevenZipToStagingAsync(
-                packagePath,
-                stagingDirectory,
-                executableName,
-                cancellationToken);
+                packagePath, stagingDirectory, executableName, cancellationToken);
 
             if (string.IsNullOrWhiteSpace(packageExecutable))
             {
@@ -100,20 +94,16 @@ public sealed class ApplicationUpdateService
             }
 
             string stagedExecutablePath = GetSafeDestinationPath(
-                stagingDirectory,
-                packageExecutable);
+                stagingDirectory, packageExecutable);
 
             if (!File.Exists(stagedExecutablePath))
             {
                 throw new InvalidDataException($"The staged update does not contain the application executable {packageExecutable}.");
             }
 
-            File.WriteAllText(
-                updaterPath,
-                BuildUpdateScript());
+            File.WriteAllText(updaterPath, BuildUpdateScript());
 
-            string commandProcessor =
-                Environment.GetEnvironmentVariable("ComSpec")
+            string commandProcessor = Environment.GetEnvironmentVariable("ComSpec")
                 ?? "cmd.exe";
 
             Process.Start(new ProcessStartInfo
@@ -141,10 +131,7 @@ public sealed class ApplicationUpdateService
     }
 
     private static async Task<string?> ExtractSevenZipToStagingAsync(
-        string packagePath,
-        string stagingDirectory,
-        string executableName,
-        CancellationToken cancellationToken)
+        string packagePath, string stagingDirectory, string executableName, CancellationToken cancellationToken)
     {
         List<string> paths;
 
@@ -163,9 +150,7 @@ public sealed class ApplicationUpdateService
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .ToList();
 
-        string? packageExecutable = FindPackageExecutable(
-            relativePaths,
-            executableName);
+        string? packageExecutable = FindPackageExecutable(relativePaths, executableName);
 
         using var archiveToExtract = SevenZipArchive.Open(packagePath);
 
@@ -182,27 +167,15 @@ public sealed class ApplicationUpdateService
             if (string.IsNullOrWhiteSpace(relativePath))
                 continue;
 
-            string destination = GetSafeDestinationPath(
-                stagingDirectory,
-                relativePath);
+            string destination = GetSafeDestinationPath(stagingDirectory, relativePath);
 
             Directory.CreateDirectory(
                 Path.GetDirectoryName(destination)
                 ?? stagingDirectory);
 
             await using Stream source = entry.OpenEntryStream();
-            await using FileStream target = new(
-                destination,
-                FileMode.Create,
-                FileAccess.Write,
-                FileShare.Read,
-                128 * 1024,
-                true);
-
-            await source.CopyToAsync(
-                target,
-                128 * 1024,
-                cancellationToken);
+            await using FileStream target = new(destination, FileMode.Create, FileAccess.Write, FileShare.Read, 128 * 1024, true);
+            await source.CopyToAsync(target, 128 * 1024, cancellationToken);
         }
 
         return packageExecutable;
@@ -222,33 +195,25 @@ public sealed class ApplicationUpdateService
         string wrapper = topLevels[0];
         string prefix = wrapper + "/";
 
-        return paths.Any(path =>
-                path.StartsWith(
-                    prefix,
-                    StringComparison.OrdinalIgnoreCase))
+        return paths.Any(path => path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             ? wrapper
             : string.Empty;
     }
 
-    private static string StripWrapper(
-        string path,
-        string wrapper)
+    private static string StripWrapper(string path, string wrapper)
     {
         if (string.IsNullOrWhiteSpace(wrapper))
             return path;
 
         string prefix = wrapper + "/";
 
-        return path.StartsWith(
-            prefix,
-            StringComparison.OrdinalIgnoreCase)
+        return path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
             ? path[prefix.Length..]
             : path;
     }
 
     private static string? FindPackageExecutable(
-        IEnumerable<string> paths,
-        string installedExecutableName)
+        IEnumerable<string> paths, string installedExecutableName)
     {
         string[] executables = paths
             .Where(path =>
@@ -256,9 +221,7 @@ public sealed class ApplicationUpdateService
             .ToArray();
 
         string? exact = executables.FirstOrDefault(path =>
-            Path.GetFileName(path).Equals(
-                installedExecutableName,
-                StringComparison.OrdinalIgnoreCase));
+            Path.GetFileName(path).Equals(installedExecutableName, StringComparison.OrdinalIgnoreCase));
 
         if (!string.IsNullOrWhiteSpace(exact))
             return exact;
@@ -269,23 +232,16 @@ public sealed class ApplicationUpdateService
     }
 
     private static string GetSafeDestinationPath(
-        string installDirectory,
-        string relativePath)
+        string installDirectory, string relativePath)
     {
         string root = Path.GetFullPath(installDirectory)
-            .TrimEnd(
-                Path.DirectorySeparatorChar,
-                Path.AltDirectorySeparatorChar)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
             + Path.DirectorySeparatorChar;
 
         string destination = Path.GetFullPath(
-            Path.Combine(
-                installDirectory,
-                relativePath.Replace('/', Path.DirectorySeparatorChar)));
+            Path.Combine(installDirectory, relativePath.Replace('/', Path.DirectorySeparatorChar)));
 
-        if (!destination.StartsWith(
-            root,
-            StringComparison.OrdinalIgnoreCase))
+        if (!destination.StartsWith(root, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidDataException($"The update package contains an invalid path: {relativePath}");
         }
@@ -295,16 +251,11 @@ public sealed class ApplicationUpdateService
 
     private static string NormalizeArchivePath(string path)
     {
-        return path
-            .Replace('\\', '/')
-            .TrimStart('/');
+        return path.Replace('\\', '/').TrimStart('/');
     }
 
     private static async Task DownloadAssetAsync(
-        ApplicationUpdateInfo update,
-        string packagePath,
-        IProgress<double>? progress,
-        CancellationToken cancellationToken)
+        ApplicationUpdateInfo update, string packagePath, IProgress<double>? progress, CancellationToken cancellationToken)
     {
         List<string> urls = [];
 
@@ -325,25 +276,18 @@ public sealed class ApplicationUpdateService
         {
             try
             {
-                using var request = new HttpRequestMessage(
-                    HttpMethod.Get,
-                    url);
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
 
                 request.Headers.Accept.Clear();
-                request.Headers.Accept.Add(
-                    new MediaTypeWithQualityHeaderValue("application/octet-stream"));
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/octet-stream"));
 
-                if (url.StartsWith(
-                    "https://api.github.com/", StringComparison.OrdinalIgnoreCase))
+                if (url.StartsWith("https://api.github.com/", StringComparison.OrdinalIgnoreCase))
                 {
-                    request.Headers.Add(
-                        "X-GitHub-Api-Version", "2022-11-28");
+                    request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
                 }
 
                 using HttpResponseMessage response = await HttpClient.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseHeadersRead,
-                    cancellationToken);
+                    request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -353,32 +297,21 @@ public sealed class ApplicationUpdateService
 
                 long? totalBytes = response.Content.Headers.ContentLength;
                 await using Stream source = await response.Content.ReadAsStreamAsync(cancellationToken);
-                await using FileStream target = new(
-                    packagePath,
-                    FileMode.Create,
-                    FileAccess.Write,
-                    FileShare.None,
-                    128 * 1024,
-                    true);
+                await using FileStream target = new(packagePath, FileMode.Create, FileAccess.Write, FileShare.None, 128 * 1024, true);
 
                 byte[] buffer = new byte[128 * 1024];
                 long downloaded = 0;
                 int read;
 
-                while ((read = await source.ReadAsync(
-                    buffer,
-                    cancellationToken)) > 0)
+                while ((read = await source.ReadAsync(buffer, cancellationToken)) > 0)
                 {
-                    await target.WriteAsync(
-                        buffer.AsMemory(0, read),
-                        cancellationToken);
+                    await target.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
 
                     downloaded += read;
 
                     if (totalBytes is > 0)
                     {
-                        progress?.Report(
-                            downloaded / (double)totalBytes.Value * 100d);
+                        progress?.Report(downloaded / (double)totalBytes.Value * 100d);
                     }
                 }
 
@@ -406,54 +339,38 @@ public sealed class ApplicationUpdateService
             Timeout = TimeSpan.FromMinutes(5)
         };
 
-        client.DefaultRequestHeaders.UserAgent.Add(
-            new ProductInfoHeaderValue("SophonDownloader", App.Version));
-
-        client.DefaultRequestHeaders.Accept.Add(
-            new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
-
-        client.DefaultRequestHeaders.Add(
-            "X-GitHub-Api-Version", "2022-11-28");
+        client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("SophonDownloader", App.Version));
+        client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        client.DefaultRequestHeaders.Add("X-GitHub-Api-Version", "2022-11-28");
 
         return client;
     }
 
-    private static (string downloadUrl, string apiUrl, string fileName)? FindAsset(
-        JsonElement assets)
+    private static (string downloadUrl, string apiUrl, string fileName)? FindAsset(JsonElement assets)
     {
         var candidates = assets
             .EnumerateArray().Select(asset =>
             {
                 string name = asset.GetProperty("name").GetString() ?? string.Empty;
                 string browserUrl = asset.GetProperty("browser_download_url").GetString() ?? string.Empty;
-                string apiUrl = asset.TryGetProperty(
-                    "url",
-                    out JsonElement urlElement)
+                string apiUrl = asset.TryGetProperty("url", out JsonElement urlElement)
                     ? urlElement.GetString() ?? string.Empty
                     : string.Empty;
 
                 return (name, browserUrl, apiUrl);
             })
-            .Where(asset =>
-                asset.name.EndsWith(
-                    ".7z", StringComparison.OrdinalIgnoreCase))
-            .Where(asset =>
-                !asset.name.Contains(
-                    "source", StringComparison.OrdinalIgnoreCase))
+            .Where(asset => asset.name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase))
+            .Where(asset => !asset.name.Contains("source", StringComparison.OrdinalIgnoreCase))
             .ToList();
 
-        var sevenZip = candidates.FirstOrDefault(asset =>
-            asset.name.EndsWith(
-                ".7z", StringComparison.OrdinalIgnoreCase));
+        var sevenZip = candidates.FirstOrDefault(asset => asset.name.EndsWith(".7z", StringComparison.OrdinalIgnoreCase));
 
         return string.IsNullOrWhiteSpace(sevenZip.browserUrl)
             ? null
             : (sevenZip.browserUrl, sevenZip.apiUrl, sevenZip.name);
     }
 
-    private static bool TryParseVersion(
-        string value,
-        out Version? version)
+    private static bool TryParseVersion(string value, out Version? version)
     {
         value = value.Trim().TrimStart('v', 'V');
         return Version.TryParse(value, out version);
@@ -511,16 +428,11 @@ exit /b 1
             if (Directory.Exists(path))
                 Directory.Delete(path, recursive: true);
         }
-        catch { }
+        catch {}
     }
 }
 
 public sealed record ApplicationUpdateInfo(
-    string Version,
-    string Name,
-    string PublishedAt,
-    string? ReleaseNotes,
-    string? DownloadUrl,
-    string? FileName,
-    bool HasUpdate,
+    string Version, string Name, string PublishedAt, string? ReleaseNotes,
+    string? DownloadUrl, string? FileName, bool HasUpdate,
     string? DownloadApiUrl = null);

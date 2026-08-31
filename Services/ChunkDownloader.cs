@@ -116,12 +116,12 @@ public sealed class ChunkDownloader : IDisposable
         _deleteTemporaryFilesOnCancel = true;
 
         try { _cancellationTokenSource.Cancel(); }
-        catch { }
+        catch {}
 
         foreach (Aria2c aria2c in _aria2Downloads.Values)
         {
             try { aria2c.Cancel(); }
-            catch { }
+            catch {}
         }
 
         lock (_pauseLock)
@@ -291,7 +291,7 @@ public sealed class ChunkDownloader : IDisposable
             foreach (Aria2c aria2c in _aria2Downloads.Values)
             {
                 try { aria2c.Cancel(); }
-                catch { }
+                catch {}
             }
 
             _aria2Downloads.Clear();
@@ -440,12 +440,9 @@ public sealed class ChunkDownloader : IDisposable
         try
         {
             int exitCode = await aria2c.RunAsync(
-                url,
-                directory ?? _chunkStore.ChunkDirectory,
+                url, directory ?? _chunkStore.ChunkDirectory,
                 Path.GetFileName(temporaryPath),
-                existingBytes,
-                null,
-                info =>
+                existingBytes, null, info =>
                 {
                     long currentBytes = info.BytesReceived;
                     long previousBytes = _aria2ChunkBytes.GetValueOrDefault(chunk.Id);
@@ -564,11 +561,8 @@ public sealed class ChunkDownloader : IDisposable
 
             await using Stream input = await response.Content.ReadAsStreamAsync(cancellationToken);
             await using var output = new FileStream(
-                temporaryPath,
-                resumeAccepted ? FileMode.Append : FileMode.Create,
-                FileAccess.Write,
-                FileShare.None,
-                BufferSize,
+                temporaryPath, resumeAccepted ? FileMode.Append : FileMode.Create,
+                FileAccess.Write, FileShare.None, BufferSize,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
 
             byte[] buffer = new byte[BufferSize];
@@ -633,8 +627,7 @@ public sealed class ChunkDownloader : IDisposable
             return 0;
 
         int workers = string.Equals(settings.DownloadMode, "Sequential", StringComparison.OrdinalIgnoreCase)
-            ? 1
-            : Math.Clamp(settings.Threads, 1, 64);
+            ? 1 : Math.Clamp(settings.Threads, 1, 64);
         return Math.Max(1, total / workers);
     }
 
@@ -736,27 +729,16 @@ public sealed class ChunkDownloader : IDisposable
             if (string.IsNullOrWhiteSpace(chunk.CompressedMd5)) return true;
 
             await using var stream = new FileStream(
-                temporaryPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read,
-                BufferSize,
+                temporaryPath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
 
             string actualMd5 = await Utility.CalculateMd5Async(stream);
-
             cancellationToken.ThrowIfCancellationRequested();
 
             return actualMd5.Equals(chunk.CompressedMd5, StringComparison.OrdinalIgnoreCase);
         }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch
-        {
-            return false;
-        }
+        catch (OperationCanceledException) { throw; }
+        catch { return false; }
     }
 
     private void RemovePartialChunk(string chunkId)
@@ -838,16 +820,16 @@ public sealed class ChunkDownloader : IDisposable
         _disposed = true;
 
         try { _cancellationTokenSource.Cancel(); }
-        catch { }
+        catch {}
 
         foreach (Aria2c aria2c in _aria2Downloads.Values)
         {
             try { aria2c.Cancel(); }
-            catch { }
+            catch {}
         }
 
         _aria2Downloads.Clear();
-        try { _http.Dispose(); } catch { }
+        try { _http.Dispose(); } catch {}
         _aria2ChunkBytes.Clear();
         _aria2ChunkSpeeds.Clear();
 
@@ -855,12 +837,12 @@ public sealed class ChunkDownloader : IDisposable
             _resumeSignal.TrySetResult(true);
 
         try { _cancellationTokenSource.Dispose(); }
-        catch { }
+        catch {}
     }
 
-    private sealed class Aria2PausedException : Exception { }
+    private sealed class Aria2PausedException : Exception {}
     private sealed class ChunkValidationException : Exception
     {
-        public ChunkValidationException(string message) : base(message) { }
+        public ChunkValidationException(string message) : base(message) {}
     }
 }

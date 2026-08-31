@@ -593,6 +593,35 @@
 
                         <StackPanel>
 
+                            <TextBlock Text="Concurrent downloads"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       FontSize="12"/>
+
+                            <TextBlock Text="Maximum number of download jobs the queue runs at the same time."
+                                       Foreground="{DynamicResource MutedBrush}"
+                                       FontSize="10"
+                                       Margin="0,4,0,0"
+                                       TextWrapping="Wrap"/>
+
+                        </StackPanel>
+
+                        <TextBox x:Name="MaxConcurrentDownloadsTextBox"
+                                 Grid.Column="1"
+                                 Style="{StaticResource InputStyle}"
+                                 TextChanged="AutoSaveTextBox_TextChanged"
+                                 ToolTip="1–8 concurrent download jobs"/>
+
+                    </Grid>
+
+                    <Grid Margin="0,16,0,0">
+
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="220"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel>
+
                             <TextBlock Text="Threads"
                                        Foreground="{DynamicResource TextBrush}"
                                        FontSize="12"/>
